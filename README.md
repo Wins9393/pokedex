@@ -26,6 +26,8 @@ npm run dev
   l'en-tête pour revenir aux illustrations officielles (choix mémorisé). En mode illustration, le
   survol d'une carte donne un aperçu animé.
 - **Favoris** persistés en local, thème clair/sombre, navigation clavier (`/`, `←`, `→`, `Échap`).
+- **Installable** : application web progressive, lancée en fenêtre autonome depuis l'écran
+  d'accueil, avec sa propre icône et un fonctionnement hors ligne.
 
 ## Choix techniques
 
@@ -85,7 +87,15 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   s'annule d'elle-même, la largeur mesurée valant alors zéro.
 - **Le port de développement est fixé à 5180**, et non au 5173 par défaut : d'autres projets du
   dossier y enregistrent un service worker qui survit à l'arrêt de leur serveur et parasite
-  ensuite toute application servie sur cette origine.
+  ensuite toute application servie sur cette origine. Pour la même raison, le service worker de
+  ce projet est **désactivé en développement** : il n'existe que dans le build de production.
+- **Une requête GraphQL part en POST, et l'API Cache ne sait stocker que des GET.** Le service
+  worker ne peut donc rien faire pour les données : le hors-ligne repose entièrement sur la
+  persistance `localStorage` de TanStack Query. Le service worker ne prend en charge que la
+  coquille applicative et les médias, qui eux passent bien en GET.
+- **Les sprites sont servis sans CORS**, donc leurs réponses sont opaques et portent le statut
+  `0`. Sans `cacheableResponse: { statuses: [0, 200] }`, Workbox les rejetterait en silence et
+  le cache resterait vide.
 
 ### Structure
 
@@ -100,6 +110,24 @@ src/
 
 `src/api/normalize.ts` est le seul fichier qui connaît la forme brute de l'API : il aplatit les
 réponses GraphQL en modèles simples utilisés partout ailleurs.
+
+## Déploiement
+
+Le site est entièrement statique. `netlify.toml` contient déjà la configuration :
+
+| Réglage | Valeur |
+| --- | --- |
+| Commande de build | `npm run build` |
+| Dossier publié | `dist` |
+| Node | 22 |
+
+Deux points méritent l'attention :
+
+- **Le repli SPA** (`/*` → `/index.html`, statut 200) est indispensable. Les routes sont
+  résolues côté client : sans lui, ouvrir directement `/pokemon/149` renverrait un 404.
+- **`sw.js` et `manifest.webmanifest` sont servis en `no-cache`.** Le service worker pilote les
+  mises à jour ; mis en cache longue durée, il figerait l'application chez les visiteurs. Les
+  bundles, eux, portent une empreinte dans leur nom et sont donc marqués `immutable`.
 
 ## Scripts
 

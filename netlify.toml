@@ -1,0 +1,35 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# React Router résout les routes côté client. Sans ce repli, ouvrir
+# directement https://…/pokemon/149 ferait chercher au serveur un fichier
+# de ce nom, qui n'existe pas : 404. Netlify sert d'abord les fichiers
+# réellement présents, cette règle ne capte donc que la navigation.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Le service worker est le point de contrôle des mises à jour : servi
+# depuis un cache long, il figerait l'application chez les visiteurs
+# jusqu'à expiration.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# Les bundles portent une empreinte de contenu dans leur nom : un contenu
+# différent produit un nom différent, ils sont donc immuables.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
