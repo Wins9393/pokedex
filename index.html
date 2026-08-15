@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Pokédex complet : les 1025 espèces, leurs stats, types, évolutions et formes chromatiques." />
+    <meta name="theme-color" content="#080a12" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
+    <title>Pokédex</title>
+    <script>
+      // Applique le thème avant le premier rendu pour éviter le flash blanc.
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('pokedex:theme')
+          var dark = stored
+            ? stored === 'dark'
+            : !window.matchMedia('(prefers-color-scheme: light)').matches
+          document.documentElement.classList.toggle('dark', dark)
+        } catch (error) {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

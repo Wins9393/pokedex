@@ -1,0 +1,291 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ *
+ * Design tokens
+ * ------------------------------------------------------------------ */
+
+@theme {
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --radius-card: 1.5rem;
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-float: float 5s ease-in-out infinite;
+  --animate-spin-slow: spin 14s linear infinite;
+  --animate-sparkle: sparkle 1.1s ease-out forwards;
+  --animate-pop-in: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/*
+ * `static` est indispensable ici : les couleurs de type sont référencées
+ * dynamiquement (`var(--color-type-${type})`), donc Tailwind ne les voit
+ * pas dans les sources et les éliminerait — les cartes se retrouveraient
+ * sans dégradé.
+ */
+@theme static {
+  /* Les 18 types. Chaque couleur sert d'accent, de dégradé et de halo. */
+  --color-type-normal: #a0a29f;
+  --color-type-fire: #ff8c42;
+  --color-type-water: #4d90f0;
+  --color-type-electric: #f7ce3d;
+  --color-type-grass: #5dc15d;
+  --color-type-ice: #74cec0;
+  --color-type-fighting: #e0455e;
+  --color-type-poison: #b25fd0;
+  --color-type-ground: #dc9b4e;
+  --color-type-flying: #93aef7;
+  --color-type-psychic: #fb6c8b;
+  --color-type-bug: #a6c130;
+  --color-type-rock: #c3b267;
+  --color-type-ghost: #7b62a3;
+  --color-type-dragon: #7c5cf5;
+  --color-type-dark: #6b6480;
+  --color-type-steel: #a5b0c4;
+  --color-type-fairy: #f096c4;
+}
+
+/* Tokens sémantiques : la valeur change avec le thème, les utilitaires non. */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-panel-soft: var(--panel-soft);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent: var(--accent);
+}
+
+:root {
+  color-scheme: light;
+  --canvas: #eceff7;
+  --panel: #ffffff;
+  --panel-soft: #f4f6fc;
+  --line: #dde2ee;
+  --ink: #10131c;
+  --ink-soft: #4e5568;
+  --ink-faint: #8a91a6;
+  --accent: #e63946;
+  --card-glow: 0 18px 40px -18px rgb(16 19 28 / 0.35);
+}
+
+.dark {
+  color-scheme: dark;
+  --canvas: #080a12;
+  --panel: #12152098;
+  --panel-soft: #1a1e30;
+  --line: #272c42;
+  --ink: #f1f4fc;
+  --ink-soft: #a7aec6;
+  --ink-faint: #6d7593;
+  --accent: #ff4d5a;
+  --card-glow: 0 18px 45px -20px rgb(0 0 0 / 0.9);
+}
+
+/* ------------------------------------------------------------------ *
+ * Base
+ * ------------------------------------------------------------------ */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /*
+     * Barre de défilement permanente, même quand la page est courte. La
+     * largeur utile ne varie alors jamais — ni au filtrage, ni à
+     * l'ouverture d'une fiche.
+     *
+     * C'est volontairement `overflow-y: scroll` et non
+     * `scrollbar-gutter: stable` : la gouttière est annulée par un
+     * `overflow: hidden`, alors qu'ici la valeur n'est jamais modifiée.
+     * Le verrou de `use-scroll-lock` fige le `body` plutôt que de toucher
+     * à l'`overflow`, précisément pour ne pas escamoter cette barre.
+     */
+    overflow-y: scroll;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Un halo diffus en fond, pour éviter l'aplat mort. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 12% -10%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 70%),
+      radial-gradient(50rem 34rem at 92% 4%, color-mix(in oklab, #4d90f0 14%, transparent), transparent 70%);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 35%, transparent);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--ink-faint) 45%, transparent);
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--ink-faint) 75%, transparent);
+    background-clip: content-box;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Utilitaires maison
+ * ------------------------------------------------------------------ */
+
+@utility glass {
+  background: color-mix(in oklab, var(--panel) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid color-mix(in oklab, var(--line) 80%, transparent);
+}
+
+/*
+ * Un conteneur en `overflow: auto` gagne ou perd la largeur de sa barre
+ * dès que son contenu franchit la hauteur disponible, et tout ce qu'il
+ * contient se décale latéralement. Réserver la gouttière évite ce saut.
+ *
+ * Uniquement quand les barres prennent réellement de la place, ce que
+ * détecte le script d'amorçage de index.html : avec des barres en
+ * surimpression, elles flottent au-dessus du contenu et s'effacent
+ * d'elles-mêmes — la gouttière n'y creuserait qu'un vide permanent.
+ */
+@layer components {
+  .classic-scrollbars .stable-gutter {
+    scrollbar-gutter: stable;
+  }
+}
+
+/* Le filigrane Pokéball des cartes et en-têtes. */
+@utility pokeball-watermark {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='white' stroke-width='5'%3E%3Ccircle cx='50' cy='50' r='44'/%3E%3Ccircle cx='50' cy='50' r='14'/%3E%3Cpath d='M6 50h30M64 50h30'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+/* Curseur à deux poignées : deux <input range> superposés, seuls les
+   pouces captent le pointeur pour que les deux restent attrapables. */
+@layer components {
+  .range-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    appearance: none;
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .range-input::-webkit-slider-thumb {
+    appearance: none;
+    pointer-events: auto;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 999px;
+    background: var(--panel-soft);
+    border: 3px solid var(--accent);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+    cursor: grab;
+    transition: transform 0.15s ease;
+  }
+
+  .range-input::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    transform: scale(1.15);
+  }
+
+  .range-input::-moz-range-thumb {
+    pointer-events: auto;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 999px;
+    background: var(--panel-soft);
+    border: 3px solid var(--accent);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+    cursor: grab;
+  }
+
+  .range-input:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -160% 0;
+  }
+  100% {
+    background-position: 260% 0;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes sparkle {
+  0% {
+    transform: scale(0) rotate(0deg);
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5) rotate(150deg);
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
