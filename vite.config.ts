@@ -83,7 +83,11 @@ export default defineConfig({
             options: {
               cacheName: 'pokemon-sprites',
               expiration: {
-                maxEntries: 900,
+                // De quoi couvrir le dex entier, illustrations et sprites
+                // animés confondus : environ 164 Mo, soit 3 % d'un quota
+                // d'origine typique. `purgeOnQuotaError` reste le filet sur
+                // un appareil à l'espace contraint.
+                maxEntries: 2500,
                 maxAgeSeconds: JOUR * 30,
                 purgeOnQuotaError: true,
               },
