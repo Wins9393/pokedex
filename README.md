@@ -41,11 +41,13 @@ graphql.pokeapi.co/v1beta2  →  1025 espèces + la matrice d'efficacité des 18
 ```
 
 Conséquence directe : la recherche et les filtres s'exécutent en mémoire et ne dépendent jamais du
-réseau. L'index est mis en cache dans `localStorage` (424 Ko), ce qui rend l'application
-**utilisable hors ligne** dès la deuxième visite — au rechargement, aucune requête n'est émise.
+réseau. L'index est persisté dans **IndexedDB** (424 Ko), ce qui rend l'application **utilisable
+hors ligne** dès la deuxième visite — au rechargement, aucune requête n'est émise.
 
-Les fiches détaillées sont chargées à la demande et volontairement **exclues** de la persistance,
-pour ne pas saturer le quota de stockage.
+Les fiches détaillées sont chargées à la demande, puis persistées elles aussi : un Pokémon consulté
+une fois le reste hors ligne, définitivement. Une fiche pèse une trentaine de kilooctets une fois
+normalisée, contre 40 Ko en moyenne dans la réponse brute — les 1025 tiendraient dans une dizaine
+de mégaoctets.
 
 ### Pièges rencontrés
 
@@ -90,9 +92,16 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   ensuite toute application servie sur cette origine. Pour la même raison, le service worker de
   ce projet est **désactivé en développement** : il n'existe que dans le build de production.
 - **Une requête GraphQL part en POST, et l'API Cache ne sait stocker que des GET.** Le service
-  worker ne peut donc rien faire pour les données : le hors-ligne repose entièrement sur la
-  persistance `localStorage` de TanStack Query. Le service worker ne prend en charge que la
+  worker ne peut donc rien faire pour les données : le hors-ligne des données repose entièrement
+  sur la persistance IndexedDB de TanStack Query. Le service worker ne prend en charge que la
   coquille applicative et les médias, qui eux passent bien en GET.
+- **Trois stockages coexistent, avec des quotas sans rapport entre eux.** `localStorage` plafonne
+  à ~5 Mo et n'accepte que des chaînes ; IndexedDB et l'API Cache partagent le quota d'origine,
+  qui se compte en gigaoctets. C'est ce qui a fait passer la persistance de l'un à l'autre :
+  l'index seul tenait dans 5 Mo, les fiches non.
+- **Une fiche doit survivre en mémoire pour être persistée.** Avec le `gcTime` par défaut, elle
+  quitte le cache cinq minutes après avoir été fermée, donc avant la prochaine écriture sur
+  disque, et ne serait jamais écrite. D'où le `gcTime: Infinity` sur les requêtes de détail.
 - **Les sprites sont servis sans CORS**, donc leurs réponses sont opaques et portent le statut
   `0`. Sans `cacheableResponse: { statuses: [0, 200] }`, Workbox les rejetterait en silence et
   le cache resterait vide.

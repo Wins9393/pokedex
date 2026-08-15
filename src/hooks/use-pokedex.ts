@@ -64,5 +64,11 @@ export function usePokemonDetail(id: number | null) {
       normalizeDetail(await gql<RawDetailResponse>(DETAIL_QUERY, { id }, signal)),
     enabled: id != null,
     staleTime: Infinity,
+    /*
+     * Sans cela une fiche quitte le cache cinq minutes après avoir été
+     * fermée, donc avant d'être écrite sur disque : elle ne serait jamais
+     * persistée et manquerait hors ligne.
+     */
+    gcTime: Infinity,
   })
 }
