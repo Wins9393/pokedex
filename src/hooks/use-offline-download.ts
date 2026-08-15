@@ -30,7 +30,27 @@ const PERIODE_RAFRAICHISSEMENT = 200
 
 export type EtatHorsLigne = 'mesure' | 'partiel' | 'encours' | 'complet'
 
-const attendre = (ms: number) => new Promise((resoudre) => setTimeout(resoudre, ms))
+/**
+ * Attente interruptible. Avec un `setTimeout` nu, un ouvrier en pleine
+ * temporisation de reprise — jusqu'à plusieurs secondes — ne verrait
+ * l'annulation qu'à son réveil, et le bouton resterait figé d'autant.
+ */
+function attendre(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resoudre) => {
+    if (signal?.aborted) {
+      resoudre()
+      return
+    }
+    let minuteur = 0
+    const fin = () => {
+      window.clearTimeout(minuteur)
+      signal?.removeEventListener('abort', fin)
+      resoudre()
+    }
+    minuteur = window.setTimeout(fin, ms)
+    signal?.addEventListener('abort', fin, { once: true })
+  })
+}
 
 /*
  * Les images ne sont mises en cache que par le service worker, qui
@@ -111,7 +131,8 @@ async function executer(
         } catch {
           // Palier croissant avec un peu de bruit, pour que les ouvriers ne
           // repartent pas tous exactement en même temps.
-          if (essai < TENTATIVES - 1) await attendre(pause * 2 ** essai + Math.random() * 200)
+          if (essai < TENTATIVES - 1)
+            await attendre(pause * 2 ** essai + Math.random() * 200, signal)
         }
       }
 
@@ -126,7 +147,7 @@ async function executer(
       }
 
       rapport.fait += 1
-      await attendre(pause)
+      await attendre(pause, signal)
     }
   }
 
