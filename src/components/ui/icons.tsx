@@ -160,6 +160,38 @@ export const PixelSpriteIcon = ({ className = '' }: IconProps) => (
   </svg>
 )
 
+export const DownloadIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 3.5v11" />
+    <path d="m7.5 10 4.5 4.5 4.5-4.5" />
+    <path d="M4.5 19.5h15" />
+  </svg>
+)
+
+export const CheckIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="m4.5 12.5 5 5 10-11" />
+  </svg>
+)
+
 export const PokeballIcon = ({ className = '' }: IconProps) => (
   <svg viewBox="0 0 100 100" aria-hidden="true" className={`${base} ${className}`}>
     <circle cx="50" cy="50" r="45" fill="currentColor" opacity=".18" />

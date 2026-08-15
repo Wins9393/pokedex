@@ -28,6 +28,9 @@ npm run dev
 - **Favoris** persistés en local, thème clair/sombre, navigation clavier (`/`, `←`, `→`, `Échap`).
 - **Installable** : application web progressive, lancée en fenêtre autonome depuis l'écran
   d'accueil, avec sa propre icône et un fonctionnement hors ligne.
+- **Téléchargement intégral** : un bouton précharge les 1025 fiches et leurs images pour un usage
+  hors ligne complet, avec progression et annulation. Il se grise dès que tout est déjà en cache,
+  et une reprise après interruption ne retélécharge que ce qui manque.
 
 ## Choix techniques
 
@@ -99,6 +102,14 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   à ~5 Mo et n'accepte que des chaînes ; IndexedDB et l'API Cache partagent le quota d'origine,
   qui se compte en gigaoctets. C'est ce qui a fait passer la persistance de l'un à l'autre :
   l'index seul tenait dans 5 Mo, les fiches non.
+- **PokéAPI limite le débit sans le dire.** Passé environ deux cents requêtes rapprochées, ses
+  réponses perdent l'en-tête `Access-Control-Allow-Origin` et échouent donc toutes d'un coup, sans
+  jamais renvoyer de `429`. Le préchargement intégral avance à cadence auto-ajustée : la pause
+  entre deux requêtes s'allonge à chaque échec et redescend quand ça repasse, ce qui suit la
+  limite sans avoir à la connaître.
+- **L'API Resource Timing ment sur les ressources cross-origin.** Sans en-tête
+  `Timing-Allow-Origin`, `transferSize` et `decodedBodySize` valent toujours `0` : s'en servir
+  pour distinguer une requête réussie d'une requête échouée donne un compte entièrement faux.
 - **Une fiche doit survivre en mémoire pour être persistée.** Avec le `gcTime` par défaut, elle
   quitte le cache cinq minutes après avoir été fermée, donc avant la prochaine écriture sur
   disque, et ne serait jamais écrite. D'où le `gcTime: Infinity` sur les requêtes de détail.

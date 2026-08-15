@@ -1,4 +1,5 @@
 import { SearchBar } from '@/components/filters/SearchBar'
+import { OfflineButton } from '@/components/layout/OfflineButton'
 import { HeartIcon, MoonIcon, PixelSpriteIcon, PokeballIcon, SunIcon } from '@/components/ui/icons'
 import { useSpriteMode } from '@/hooks/use-sprite-mode'
 import { useTheme } from '@/hooks/use-theme'
@@ -74,6 +75,8 @@ export function Header({
           >
             <PixelSpriteIcon className="size-4.5" />
           </button>
+
+          <OfflineButton />
 
           <button
             type="button"
