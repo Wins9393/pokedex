@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { gql } from '@/api/client'
 import { DETAIL_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
-import { normalizeDetail, normalizeMoves, normalizeMovesets } from '@/api/normalize'
+import { normalizeDetails, normalizeMoves, normalizeMovesets } from '@/api/normalize'
 import type { RawDetailResponse, RawMovesResponse, RawMovesetsResponse } from '@/api/normalize'
 import { MOVES_QUERY_KEY, movesetsKey } from '@/hooks/use-moves'
 import { artworkUrl, showdownUrl } from '@/lib/sprites'
@@ -14,35 +14,40 @@ const CACHE_SPRITES = 'pokemon-sprites'
 /*
  * PokéAPI limite le débit sans le dire : passé environ deux cents requêtes
  * rapprochées, ses réponses perdent l'en-tête CORS et tout échoue d'un coup.
- * D'où une cadence prudente sur les données, et une pause qui s'allonge
- * d'elle-même dès que ça coince.
+ *
+ * La parade n'est pas de ralentir mais de **demander moins souvent** : tout
+ * ce qui vient de l'API part par lots. Le dex entier tient en 52 requêtes de
+ * fiches, 18 de capacités et 1 de table d'attaques — 71 en tout, là où la
+ * version fiche par fiche en émettait plus d'un millier et se faisait couper
+ * autour de la deux centième.
  */
-const CONCURRENCE_DONNEES = 3
+const TAILLE_LOT_FICHES = 20
+const TAILLE_LOT_CAPACITES = 60
+
+/** Deux requêtes de front suffisent : chacune ramène déjà des centaines de kilooctets. */
+const CONCURRENCE_API = 2
 const CONCURRENCE_IMAGES = 6
-const PAUSE_INITIALE = 80
-const PAUSE_MAX = 2500
+
+const PAUSE_API = 350
+const PAUSE_IMAGES = 40
+const PAUSE_MAX = 5000
 const TENTATIVES = 3
 
 /** Au-delà, il ne s'agit plus d'aléas mais d'un blocage : inutile d'insister. */
-const ECHECS_CONSECUTIFS_MAX = 30
+const ECHECS_CONSECUTIFS_MAX = 8
 
 /** Publication de l'avancement : au fichier près, ce serait des milliers de rendus. */
 const PERIODE_RAFRAICHISSEMENT = 200
 
-/**
- * Les capacités du mode combat se demandent par lots. Soixante Pokémon par
- * requête ramènent le dex entier en dix-huit allers-retours au lieu de
- * 1025 — le même travail, mais sans réveiller la limitation de débit.
- */
-const TAILLE_LOT_CAPACITES = 60
-
-const lotsDeCapacites = (ids: number[]): number[][] => {
+const decouper = (ids: readonly number[], taille: number): number[][] => {
   const lots: number[][] = []
-  for (let debut = 0; debut < ids.length; debut += TAILLE_LOT_CAPACITES) {
-    lots.push(ids.slice(debut, debut + TAILLE_LOT_CAPACITES))
+  for (let debut = 0; debut < ids.length; debut += taille) {
+    lots.push(ids.slice(debut, debut + taille))
   }
   return lots
 }
+
+const lotsDeCapacites = (ids: readonly number[]) => decouper(ids, TAILLE_LOT_CAPACITES)
 
 const enCache = (client: QueryClient, cle: readonly unknown[]) =>
   client.getQueryState([...cle])?.status === 'success'
@@ -128,23 +133,31 @@ const precharger = (url: string, signal: AbortSignal) =>
 
 type Rapport = { fait: number; echecs: number; bloque: boolean }
 
+type Cadence = { concurrence: number; pauseBase: number }
+
 /**
  * File d'attente à cadence auto-ajustée : la pause entre deux requêtes
  * s'allonge à chaque échec et redescend quand ça repasse, ce qui suit la
  * limite du serveur sans avoir à la connaître.
+ *
+ * Le blocage est **propre à la phase** et renvoyé à l'appelant, au lieu
+ * d'arrêter tout le téléchargement. Les images viennent d'un CDN qui n'a
+ * rien à voir avec PokéAPI : les abandonner parce que l'API a coupé serait
+ * renoncer aux trois quarts du travail sans raison.
  */
 async function executer(
   taches: Array<() => Promise<unknown>>,
-  concurrence: number,
+  cadence: Cadence,
   signal: AbortSignal,
   rapport: Rapport,
-) {
+): Promise<boolean> {
   let curseur = 0
-  let pause = PAUSE_INITIALE
+  let pause = cadence.pauseBase
   let consecutifs = 0
+  let bloque = false
 
   const ouvrier = async () => {
-    while (curseur < taches.length && !signal.aborted && !rapport.bloque) {
+    while (curseur < taches.length && !signal.aborted && !bloque) {
       const tache = taches[curseur++]
       let reussi = false
 
@@ -163,12 +176,12 @@ async function executer(
 
       if (reussi) {
         consecutifs = 0
-        pause = Math.max(PAUSE_INITIALE, pause * 0.9)
+        pause = Math.max(cadence.pauseBase, pause * 0.9)
       } else {
         rapport.echecs += 1
         consecutifs += 1
         pause = Math.min(PAUSE_MAX, pause * 1.6)
-        if (consecutifs >= ECHECS_CONSECUTIFS_MAX) rapport.bloque = true
+        if (consecutifs >= ECHECS_CONSECUTIFS_MAX) bloque = true
       }
 
       rapport.fait += 1
@@ -176,7 +189,10 @@ async function executer(
     }
   }
 
-  await Promise.all(Array.from({ length: concurrence }, ouvrier))
+  await Promise.all(Array.from({ length: cadence.concurrence }, ouvrier))
+
+  if (bloque) rapport.bloque = true
+  return bloque
 }
 
 export function useOfflineDownload(ids: number[]) {
@@ -227,29 +243,33 @@ export function useOfflineDownload(ids: number[]) {
           .filter((url) => !dejaLa.has(url))
       : []
 
-    const donnees: Array<() => Promise<unknown>> = idsManquants.map(
-      (id) => () =>
-        client.fetchQuery({
-          queryKey: ['pokedex', 'detail', id],
-          queryFn: async ({ signal }) =>
-            normalizeDetail(await gql<RawDetailResponse>(DETAIL_QUERY, { id }, signal)),
-          staleTime: Infinity,
-          gcTime: Infinity,
-          // La reprise est gérée ici, avec sa propre cadence : laisser aussi
-          // TanStack réessayer superposerait deux logiques de temporisation.
-          retry: false,
-        }),
-    )
+    /*
+     * Les fiches partent par lots de vingt et sont réparties une à une dans
+     * le cache : chacune garde sa propre clé, donc reste lisible par la fiche
+     * détail comme si elle avait été demandée seule.
+     *
+     * C'est ce groupement qui rend le téléchargement possible. Une requête
+     * par Pokémon en faisait 1025, et PokéAPI coupait vers la deux centième —
+     * le téléchargement plafonnait alors autour de 10 %.
+     */
+    const donnees: Array<() => Promise<unknown>> = decouper(
+      idsManquants,
+      TAILLE_LOT_FICHES,
+    ).map((lot) => async () => {
+      const brut = await gql<RawDetailResponse>(DETAIL_QUERY, { ids: lot }, abandon.signal)
+      for (const fiche of normalizeDetails(brut)) {
+        client.setQueryData(['pokedex', 'detail', fiche.id], fiche)
+      }
+    })
 
     const images: Array<() => Promise<unknown>> = urlsManquantes.map(
       (url) => () => precharger(url, abandon.signal),
     )
 
     /*
-     * Les données du mode combat rejoignent la file : dix-neuf requêtes en
-     * tout, contre plus d'un millier pour les fiches. Elles passent en
-     * premier, pour qu'un téléchargement interrompu tôt laisse quand même
-     * les combats jouables hors ligne.
+     * Les données du mode combat passent en premier : dix-neuf requêtes,
+     * pour qu'un téléchargement interrompu tôt laisse quand même les
+     * combats jouables hors ligne.
      */
     const combat: Array<() => Promise<unknown>> = []
 
@@ -293,13 +313,27 @@ export function useOfflineDownload(ids: number[]) {
       PERIODE_RAFRAICHISSEMENT,
     )
 
+    const cadenceApi = { concurrence: CONCURRENCE_API, pauseBase: PAUSE_API }
+
     try {
-      await executer(combat, CONCURRENCE_DONNEES, abandon.signal, rapport)
-      if (!rapport.bloque && !abandon.signal.aborted) {
-        await executer(donnees, CONCURRENCE_DONNEES, abandon.signal, rapport)
+      const coupe = await executer(combat, cadenceApi, abandon.signal, rapport)
+
+      if (!coupe && !abandon.signal.aborted) {
+        await executer(donnees, cadenceApi, abandon.signal, rapport)
       }
-      if (!rapport.bloque && !abandon.signal.aborted) {
-        await executer(images, CONCURRENCE_IMAGES, abandon.signal, rapport)
+
+      /*
+       * Les images sont servies par un CDN sans rapport avec PokéAPI : elles
+       * se téléchargent même si l'API vient de couper. Les abandonner par
+       * solidarité reviendrait à renoncer aux trois quarts du travail.
+       */
+      if (!abandon.signal.aborted) {
+        await executer(
+          images,
+          { concurrence: CONCURRENCE_IMAGES, pauseBase: PAUSE_IMAGES },
+          abandon.signal,
+          rapport,
+        )
       }
     } finally {
       window.clearInterval(battement)

@@ -56,13 +56,19 @@ export const INDEX_QUERY = /* GraphQL */ `
 `
 
 /**
- * Fiche complète d'une espèce : descriptions, élevage, chaîne
- * d'évolution entière et toutes ses formes (avec leurs types, stats,
- * talents et sprites propres).
+ * Fiches complètes : descriptions, élevage, chaîne d'évolution entière et
+ * toutes les formes (avec leurs types, stats, talents et sprites propres).
+ *
+ * La requête prend une **liste** d'identifiants, même quand une seule fiche
+ * est demandée. C'est ce qui permet au téléchargement intégral de ramener le
+ * dex en 52 requêtes plutôt qu'en 1025 : au-delà de deux cents appels
+ * rapprochés, PokéAPI cesse de répondre, et un préchargement fiche par fiche
+ * ne pouvait pas aboutir. Une fiche pèse ~23 Ko, donc un lot de vingt reste
+ * une réponse de taille raisonnable.
  */
 export const DETAIL_QUERY = /* GraphQL */ `
-  query PokemonDetail($id: Int!) {
-    species: pokemonspecies(where: { id: { _eq: $id } }) {
+  query PokemonDetail($ids: [Int!]!) {
+    species: pokemonspecies(where: { id: { _in: $ids } }, order_by: { id: asc }) {
       id
       generation_id
       capture_rate

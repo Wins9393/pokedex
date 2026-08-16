@@ -405,10 +405,20 @@ function collectEntries(species: RawDetailSpecies): FlavorEntry[] {
   return entries
 }
 
+/**
+ * La requête renvoie toujours une liste, qu'on ait demandé une fiche ou
+ * vingt : le téléchargement intégral s'en sert pour ramener le dex par lots.
+ */
+export function normalizeDetails(raw: RawDetailResponse): PokemonDetail[] {
+  return raw.species.map(normalizeSpecies)
+}
+
 export function normalizeDetail(raw: RawDetailResponse): PokemonDetail | null {
   const species = raw.species[0]
-  if (!species) return null
+  return species ? normalizeSpecies(species) : null
+}
 
+function normalizeSpecies(species: RawDetailSpecies): PokemonDetail {
   const name = species.names[0]?.name ?? `#${species.id}`
 
   // La forme par défaut d'abord, puis les autres par identifiant croissant.

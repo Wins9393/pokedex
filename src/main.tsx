@@ -24,6 +24,18 @@ const queryClient = new QueryClient({
 })
 
 /*
+ * Le téléchargement intégral récupère les fiches par lots et les répartit
+ * dans le cache avec `setQueryData`, sans qu'aucun composant ne les observe.
+ * Sans ce réglage elles hériteraient du `gcTime` par défaut et seraient
+ * évincées cinq minutes plus tard — donc avant la prochaine écriture sur
+ * disque, et le téléchargement ne laisserait aucune trace.
+ */
+queryClient.setQueryDefaults(['pokedex', 'detail'], {
+  staleTime: Infinity,
+  gcTime: Infinity,
+})
+
+/*
  * IndexedDB plutôt que localStorage. Ce dernier plafonne à 5 Mo et ne
  * stocke que des chaînes : l'index seul y tenait (424 Ko), mais les fiches
  * non — les 1025 représentent une quarantaine de mégaoctets, à comparer au

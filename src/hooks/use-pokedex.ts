@@ -60,8 +60,9 @@ export function usePokedex() {
 export function usePokemonDetail(id: number | null) {
   return useQuery({
     queryKey: ['pokedex', 'detail', id],
+    // La requête prend une liste : ici, un lot d'un seul élément.
     queryFn: async ({ signal }) =>
-      normalizeDetail(await gql<RawDetailResponse>(DETAIL_QUERY, { id }, signal)),
+      normalizeDetail(await gql<RawDetailResponse>(DETAIL_QUERY, { ids: [id] }, signal)),
     enabled: id != null,
     staleTime: Infinity,
     /*
