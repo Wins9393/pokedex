@@ -60,6 +60,16 @@ export function PokedexPage() {
         favoritesCount={favorites.size}
         favoritesOnly={controller.filters.favoritesOnly}
         onToggleFavorites={() => controller.setFavoritesOnly(!controller.filters.favoritesOnly)}
+        barre={
+          pokemon ? (
+            <ResultsBar
+              controller={controller}
+              count={results.length}
+              total={pokemon.length}
+              onOpenFilters={() => setDrawerOpen(true)}
+            />
+          ) : undefined
+        }
       />
 
       <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
@@ -74,20 +84,15 @@ export function PokedexPage() {
 
         {pokemon && (
           <div className="flex gap-6">
-            <aside className="hidden w-72 shrink-0 lg:block">
+            {/* Largeur partagée avec le décalage de la barre de résultats
+                dans l'en-tête, pour qu'ils ne dérivent pas l'un de l'autre. */}
+            <aside className="hidden w-[var(--largeur-filtres)] shrink-0 lg:block">
               <div className="stable-gutter sticky top-24 max-h-[calc(100dvh-7rem)] overflow-y-auto pb-4">
                 <FilterPanel controller={controller} bounds={bounds} pokemon={pokemon} />
               </div>
             </aside>
 
             <div className="min-w-0 flex-1">
-              <ResultsBar
-                controller={controller}
-                count={results.length}
-                total={pokemon.length}
-                onOpenFilters={() => setDrawerOpen(true)}
-              />
-
               <ActiveFilterChips controller={controller} bounds={bounds} />
 
               {results.length === 0 ? (

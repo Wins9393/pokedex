@@ -176,6 +176,14 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   la colonne s'étirant à la taille de son contenu, la zone en `overflow-y` ne défilait plus et le
   virtualiseur montait les 1025 lignes d'un coup. `h-dvh` contraint la colonne, et le DOM retombe
   à dix-sept lignes.
+- **Une barre collante s'imbrique, elle ne se cale pas par un décalage mesuré.** Pour accrocher la
+  barre de résultats sous l'en-tête, la première version mesurait la hauteur de celui-ci en
+  JavaScript et la publiait en variable CSS. Mauvaise idée : la hauteur change avec la largeur de
+  la fenêtre — sous `sm`, la recherche passe à la ligne et l'en-tête gagne une rangée — et tant que
+  la mesure n'est pas rafraîchie, la barre recouvre l'en-tête. Elle est donc rendue **dans**
+  l'en-tête, qui est déjà collant : plus rien à synchroniser. Son décalage à gauche au-delà de `lg`
+  vient de `--largeur-filtres`, la même variable que la colonne de filtres, pour qu'ils ne dérivent
+  pas l'un de l'autre.
 - **L'état interne d'un composant survit tant qu'il ne se démonte pas.** Entre les deux choix d'un
   même tour, l'écran reste sur `choix` : le panneau d'action n'est jamais démonté, et un joueur qui
   venait d'ouvrir « Changer de Pokémon » passait la main à un adversaire dont le tour s'ouvrait sur

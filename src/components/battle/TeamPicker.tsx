@@ -150,17 +150,13 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
             />
           </div>
 
-          {/* `-mb-4` compense la marge basse que la barre porte pour la
-              grille, où elle est suivie de la liste et non d'un bord. */}
-          <div className="-mb-4">
-            <ResultsBar
-              controller={controleur}
-              count={resultats.length}
-              total={pokemon.length}
-              onOpenFilters={() => setTiroirOuvert(true)}
-              filtresToujoursVisibles
-            />
-          </div>
+          <ResultsBar
+            controller={controleur}
+            count={resultats.length}
+            total={pokemon.length}
+            onOpenFilters={() => setTiroirOuvert(true)}
+            filtresToujoursVisibles
+          />
         </div>
       </header>
 

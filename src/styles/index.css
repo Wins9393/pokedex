@@ -59,6 +59,14 @@
 }
 
 :root {
+  /*
+   * Largeur de la colonne de filtres. Elle sert à deux endroits : la
+   * colonne elle-même, et le décalage de la barre de résultats posée dans
+   * l'en-tête, qui doit s'aligner sur la grille et non sur le bord de la
+   * page. Une valeur partagée évite qu'ils se désynchronisent.
+   */
+  --largeur-filtres: 18rem;
+
   color-scheme: light;
   --canvas: #eceff7;
   --panel: #ffffff;

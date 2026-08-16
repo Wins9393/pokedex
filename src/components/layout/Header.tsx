@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { SearchBar } from '@/components/filters/SearchBar'
 import { OfflineButton } from '@/components/layout/OfflineButton'
@@ -18,6 +19,18 @@ type Props = {
   favoritesCount: number
   favoritesOnly: boolean
   onToggleFavorites: () => void
+  /**
+   * Seconde rangée collante, sous les contrôles : la barre de résultats de
+   * la grille y est posée plutôt que laissée dans la page.
+   *
+   * Elle vit **dans** l'en-tête, et non calée dessous par un décalage
+   * calculé : la hauteur de l'en-tête change avec la largeur de la fenêtre
+   * — sous `sm`, la recherche passe à la ligne — et tout décalage mesuré en
+   * JavaScript recouvrirait l'en-tête le temps qu'il se mette à jour, voire
+   * durablement si les images sont suspendues. Imbriquée, la barre ne peut
+   * pas se désaligner.
+   */
+  barre?: ReactNode
 }
 
 export function Header({
@@ -26,6 +39,7 @@ export function Header({
   favoritesCount,
   favoritesOnly,
   onToggleFavorites,
+  barre,
 }: Props) {
   const { theme, toggle } = useTheme()
   const sprites = useSpriteMode()
@@ -108,6 +122,19 @@ export function Header({
           </button>
         </div>
       </div>
+
+      {barre && (
+        /*
+         * Au-delà de `lg` la grille laisse la place à la colonne de filtres :
+         * la barre se décale d'autant pour rester alignée sur les cartes
+         * plutôt que sur le bord de la page. La largeur vient de la même
+         * variable que la colonne, plus la gouttière et le retrait du
+         * conteneur (1,5 rem chacun).
+         */
+        <div className="mx-auto max-w-[1500px] border-line/60 border-t px-4 py-2.5 sm:px-6 lg:pl-[calc(var(--largeur-filtres)+3rem)]">
+          {barre}
+        </div>
+      )}
     </header>
   )
 }

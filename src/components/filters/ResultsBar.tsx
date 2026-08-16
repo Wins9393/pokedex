@@ -37,7 +37,9 @@ export function ResultsBar({
   const activeCount = countActiveFilters(filters)
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+    /* Pas de marge propre : la barre est posée dans un conteneur collant
+       d'un côté, dans un en-tête de l'autre, chacun gérant son espacement. */
+    <div className="flex flex-wrap items-center gap-3">
       <p className="font-semibold text-ink text-sm">
         <span className="text-accent tabular-nums">{count}</span>
         <span className="text-ink-soft"> / {total} Pokémon</span>
