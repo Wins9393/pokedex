@@ -6,11 +6,18 @@ import { useScrollLock } from '@/hooks/use-scroll-lock'
 type Props = {
   open: boolean
   onClose: () => void
+  /**
+   * Par défaut le tiroir disparaît au-delà de `lg`, où la grille affiche
+   * une colonne de filtres permanente. La sélection d'équipe du mode
+   * combat, elle, occupe toute la fenêtre et n'a pas de place pour une
+   * colonne : elle garde le tiroir à toutes les tailles.
+   */
+  toutesTailles?: boolean
   children: React.ReactNode
 }
 
-/** Panneau de filtres en tiroir, uniquement sous le point de rupture `lg`. */
-export function FilterDrawer({ open, onClose, children }: Props) {
+/** Panneau de filtres en tiroir, sous le point de rupture `lg` par défaut. */
+export function FilterDrawer({ open, onClose, toutesTailles = false, children }: Props) {
   useScrollLock(open)
 
   useEffect(() => {
@@ -27,7 +34,7 @@ export function FilterDrawer({ open, onClose, children }: Props) {
   return (
     <AnimatePresence>
       {open && (
-        <div className="lg:hidden">
+        <div className={toutesTailles ? undefined : 'lg:hidden'}>
           <motion.div
             className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
             initial={{ opacity: 0 }}

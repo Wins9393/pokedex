@@ -18,9 +18,20 @@ type Props = {
   count: number
   total: number
   onOpenFilters: () => void
+  /**
+   * Le bouton s'efface au-delà de `lg`, où la grille montre une colonne de
+   * filtres permanente. La sélection d'équipe n'en a pas : elle le garde.
+   */
+  filtresToujoursVisibles?: boolean
 }
 
-export function ResultsBar({ controller, count, total, onOpenFilters }: Props) {
+export function ResultsBar({
+  controller,
+  count,
+  total,
+  onOpenFilters,
+  filtresToujoursVisibles = false,
+}: Props) {
   const { filters } = controller
   const searching = filters.query.trim().length > 0
   const activeCount = countActiveFilters(filters)
@@ -73,7 +84,9 @@ export function ResultsBar({ controller, count, total, onOpenFilters }: Props) {
         <button
           type="button"
           onClick={onOpenFilters}
-          className="flex items-center gap-1.5 rounded-full border border-line bg-panel-soft px-3 py-1.5 font-semibold text-ink-soft text-xs transition hover:text-ink lg:hidden"
+          className={`flex items-center gap-1.5 rounded-full border border-line bg-panel-soft px-3 py-1.5 font-semibold text-ink-soft text-xs transition hover:text-ink ${
+            filtresToujoursVisibles ? '' : 'lg:hidden'
+          }`}
         >
           <SlidersIcon className="size-4" />
           Filtres

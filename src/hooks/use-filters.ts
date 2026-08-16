@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { DEFAULT_FILTERS, RANGE_KEYS } from '@/lib/filters'
 import type { Category, Filters, Range, RangeKey, SortDir, SortKey, TypeMode } from '@/lib/filters'
@@ -85,10 +85,43 @@ function toggleValue<T>(list: T[], value: T): T[] {
 }
 
 /**
+ * Les actions de filtrage, indépendantes de l'endroit où l'état est rangé.
+ * C'est ce qui permet aux mêmes panneau, tiroir et chips de servir la
+ * grille — dont les filtres vivent dans l'URL — et la sélection d'équipe,
+ * où ils sont locaux.
+ */
+function creerControleur(
+  filters: Filters,
+  update: (patch: Partial<Filters>) => void,
+  reset: () => void,
+) {
+  return {
+    filters,
+    update,
+    reset,
+    setQuery: (query: string) => update({ query }),
+    toggleType: (type: TypeName) => update({ types: toggleValue(filters.types, type) }),
+    setTypeMode: (typeMode: TypeMode) => update({ typeMode }),
+    toggleGeneration: (generation: number) =>
+      update({ generations: toggleValue(filters.generations, generation) }),
+    toggleCategory: (category: Category) =>
+      update({ categories: toggleValue(filters.categories, category) }),
+    setRange: (key: RangeKey, range: Range | null) => {
+      const ranges = { ...filters.ranges }
+      if (range) ranges[key] = range
+      else delete ranges[key]
+      update({ ranges })
+    },
+    setFavoritesOnly: (favoritesOnly: boolean) => update({ favoritesOnly }),
+    setSort: (sort: SortKey, dir: SortDir) => update({ sort, dir }),
+  }
+}
+
+/**
  * L'état des filtres vit dans l'URL : une vue filtrée se partage, se
  * met en favori et survit à un rechargement.
  */
-export function useFilters() {
+export function useFilters(): FiltersController {
   const [params, setParams] = useSearchParams()
 
   const filters = useMemo(() => parseFilters(params), [params])
@@ -103,29 +136,32 @@ export function useFilters() {
     [setParams],
   )
 
-  return useMemo(
-    () => ({
-      filters,
-      update,
-      setQuery: (query: string) => update({ query }),
-      toggleType: (type: TypeName) => update({ types: toggleValue(filters.types, type) }),
-      setTypeMode: (typeMode: TypeMode) => update({ typeMode }),
-      toggleGeneration: (generation: number) =>
-        update({ generations: toggleValue(filters.generations, generation) }),
-      toggleCategory: (category: Category) =>
-        update({ categories: toggleValue(filters.categories, category) }),
-      setRange: (key: RangeKey, range: Range | null) => {
-        const ranges = { ...filters.ranges }
-        if (range) ranges[key] = range
-        else delete ranges[key]
-        update({ ranges })
-      },
-      setFavoritesOnly: (favoritesOnly: boolean) => update({ favoritesOnly }),
-      setSort: (sort: SortKey, dir: SortDir) => update({ sort, dir }),
-      reset: () => setParams(new URLSearchParams(), { replace: true, preventScrollReset: true }),
-    }),
-    [filters, update, setParams],
+  const reset = useCallback(
+    () => setParams(new URLSearchParams(), { replace: true, preventScrollReset: true }),
+    [setParams],
   )
+
+  return useMemo(() => creerControleur(filters, update, reset), [filters, update, reset])
 }
 
-export type FiltersController = ReturnType<typeof useFilters>
+/**
+ * Variante à état local, pour la sélection d'équipe du mode combat.
+ *
+ * L'URL n'aurait pas convenu : les filtres du joueur 1 se transmettraient
+ * au joueur 2, qui ouvrirait une liste déjà restreinte sans savoir
+ * pourquoi. Chaque joueur repart donc d'une ardoise vierge — le sélecteur
+ * étant monté avec une clé par joueur, l'état se réinitialise tout seul.
+ */
+export function useLocalFilters(): FiltersController {
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
+
+  const update = useCallback(
+    (patch: Partial<Filters>) => setFilters((previous) => ({ ...previous, ...patch })),
+    [],
+  )
+  const reset = useCallback(() => setFilters(DEFAULT_FILTERS), [])
+
+  return useMemo(() => creerControleur(filters, update, reset), [filters, update, reset])
+}
+
+export type FiltersController = ReturnType<typeof creerControleur>

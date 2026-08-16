@@ -1,11 +1,18 @@
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { Link } from 'react-router'
 import type { PokemonSummary } from '@/api/models'
+import { ActiveFilterChips } from '@/components/filters/ActiveFilterChips'
+import { FilterDrawer } from '@/components/filters/FilterDrawer'
+import { FilterPanel } from '@/components/filters/FilterPanel'
+import { ResultsBar } from '@/components/filters/ResultsBar'
 import { TypeBadge } from '@/components/ui/TypeBadge'
-import { CloseIcon, SearchIcon } from '@/components/ui/icons'
+import { ArrowLeftIcon, CloseIcon, SearchIcon } from '@/components/ui/icons'
+import { useFavorites } from '@/hooks/use-favorites'
+import { useLocalFilters } from '@/hooks/use-filters'
 import { TAILLE_EQUIPE } from '@/lib/battle/types'
-import { searchScore } from '@/lib/filters'
-import { formatDexNumber, normalizeText } from '@/lib/format'
+import { applyFilters, computeBounds } from '@/lib/filters'
+import { formatDexNumber } from '@/lib/format'
 import { typeGradient } from '@/lib/pokemon-types'
 import { artworkUrl } from '@/lib/sprites'
 
@@ -18,24 +25,26 @@ type Props = {
 }
 
 export function TeamPicker({ pokemon, player, onDone }: Props) {
-  const [query, setQuery] = useState('')
+  const controleur = useLocalFilters()
+  const { favorites } = useFavorites()
   const [choisis, setChoisis] = useState<number[]>([])
+  const [tiroirOuvert, setTiroirOuvert] = useState(false)
   const listeRef = useRef<HTMLDivElement>(null)
 
   // Même traitement que la grille : la recherche traverse 1025 entrées,
   // la valeur différée garde la frappe fluide.
-  const differee = useDeferredValue(query)
+  const requeteDifferee = useDeferredValue(controleur.filters.query)
+  const filtresEffectifs = useMemo(
+    () => ({ ...controleur.filters, query: requeteDifferee }),
+    [controleur.filters, requeteDifferee],
+  )
 
-  const resultats = useMemo(() => {
-    const needle = normalizeText(differee)
-    if (!needle) return pokemon
+  const resultats = useMemo(
+    () => applyFilters(pokemon, filtresEffectifs, favorites).results,
+    [pokemon, filtresEffectifs, favorites],
+  )
 
-    return pokemon
-      .map((entry) => ({ entry, score: searchScore(entry, needle) }))
-      .filter((row): row is { entry: PokemonSummary; score: number } => row.score !== null)
-      .sort((a, b) => b.score - a.score || a.entry.id - b.entry.id)
-      .map((row) => row.entry)
-  }, [pokemon, differee])
+  const bounds = useMemo(() => computeBounds(pokemon), [pokemon])
 
   const virtualizer = useVirtualizer({
     count: resultats.length,
@@ -67,13 +76,23 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
     <div className="flex h-dvh flex-col">
       <header className="glass sticky top-0 z-10 border-line border-b px-4 py-3 sm:px-6">
         <div className="mx-auto max-w-3xl space-y-3">
-          <div className="flex items-baseline justify-between gap-3">
-            <h1 className="font-black text-ink text-xl tracking-tight">
+          <div className="flex items-center justify-between gap-3">
+            {/*
+              Le retour ramène au Pokédex, jamais à l'écran précédent : depuis
+              la sélection du joueur 2, revenir en arrière afficherait
+              l'équipe que le joueur 1 vient de composer.
+            */}
+            <Link
+              to="/"
+              className="flex items-center gap-1.5 font-semibold text-ink-soft text-sm transition hover:text-ink"
+            >
+              <ArrowLeftIcon className="size-4" />
+              Pokédex
+            </Link>
+
+            <h1 className="font-black text-ink text-lg tracking-tight">
               Joueur <span className="text-accent">{player}</span>
             </h1>
-            <p className="text-ink-soft text-sm">
-              {choisis.length} / {TAILLE_EQUIPE} Pokémon
-            </p>
           </div>
 
           {/* Les emplacements restent visibles en permanence : c'est le
@@ -124,10 +143,22 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
             <SearchIcon className="-translate-y-1/2 absolute top-1/2 left-3 size-4 text-ink-faint" />
             <input
               type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              value={controleur.filters.query}
+              onChange={(event) => controleur.setQuery(event.target.value)}
               placeholder="Chercher un Pokémon…"
               className="w-full rounded-full border border-line bg-panel-soft py-2.5 pr-4 pl-9 text-ink text-sm outline-none placeholder:text-ink-faint focus:border-accent"
+            />
+          </div>
+
+          {/* `-mb-4` compense la marge basse que la barre porte pour la
+              grille, où elle est suivie de la liste et non d'un bord. */}
+          <div className="-mb-4">
+            <ResultsBar
+              controller={controleur}
+              count={resultats.length}
+              total={pokemon.length}
+              onOpenFilters={() => setTiroirOuvert(true)}
+              filtresToujoursVisibles
             />
           </div>
         </div>
@@ -135,6 +166,8 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
 
       <div ref={listeRef} className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
         <div className="mx-auto max-w-3xl">
+          <ActiveFilterChips controller={controleur} bounds={bounds} />
+
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((ligne) => {
               const entry = resultats[ligne.index]
@@ -195,7 +228,16 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
           </div>
 
           {resultats.length === 0 && (
-            <p className="py-16 text-center text-ink-faint">Aucun Pokémon ne correspond.</p>
+            <div className="space-y-3 py-16 text-center">
+              <p className="text-ink-faint">Aucun Pokémon ne correspond.</p>
+              <button
+                type="button"
+                onClick={controleur.reset}
+                className="rounded-full border border-line bg-panel-soft px-4 py-2 font-semibold text-ink-soft text-sm transition hover:text-ink"
+              >
+                Effacer les filtres
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -218,6 +260,10 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
           </button>
         </div>
       </footer>
+
+      <FilterDrawer open={tiroirOuvert} onClose={() => setTiroirOuvert(false)} toutesTailles>
+        <FilterPanel controller={controleur} bounds={bounds} pokemon={pokemon} />
+      </FilterDrawer>
     </div>
   )
 }

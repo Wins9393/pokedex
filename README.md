@@ -69,6 +69,12 @@ permettra, le jour venu, de faire jouer deux téléphones en n'échangeant que l
 L'aléatoire passe par un générateur à graine. Sans lui le moteur serait intestable, et deux
 `Math.random()` indépendants feraient diverger deux écrans dès le deuxième tour.
 
+La sélection d'équipe réutilise tout l'appareillage de filtres de la grille — panneau, tiroir, chips,
+tri — à une différence près : ses filtres sont **locaux au lieu de vivre dans l'URL**, sans quoi ceux
+du joueur 1 se transmettraient au joueur 2, qui ouvrirait une liste déjà restreinte sans savoir
+pourquoi. Les composants ne connaissant que l'interface `FiltersController`, il a suffi d'une seconde
+implémentation adossée à `useState` (`useLocalFilters`).
+
 **Ce qui est simulé** : dégâts, table des types, STAB, coups critiques, PP, précision, priorité.
 **Ce qui ne l'est pas** : statuts et changements de statistiques. Conséquence assumée, à connaître —
 Lance-Flammes inflige ses dégâts mais ne brûle jamais. Écarter toutes les attaques à effet
