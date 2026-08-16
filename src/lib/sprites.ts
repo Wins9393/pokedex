@@ -16,6 +16,16 @@ export const showdownUrl = (id: number, shiny = false) =>
 
 export const cryUrl = (id: number) => `${CRIES}/${id}.ogg`
 
+/**
+ * Sprite de dos, pour la vue de combat où le Pokémon du joueur est vu de
+ * derrière. Le jeu « Showdown » en fournit un animé pour presque tout le
+ * dex, mais il manque sur les tout derniers numéros (Pêchaminus, 1025) —
+ * d'où le repli, lui complet, sur le sprite pixel.
+ */
+export const showdownBackUrl = (id: number) => `${SPRITES}/other/showdown/back/${id}.gif`
+
+export const pixelBackUrl = (id: number) => `${SPRITES}/back/${id}.png`
+
 /** Sprite JSON renvoyé par PokéAPI (structure identique à celle du REST). */
 type RawSprites = {
   front_default?: string | null

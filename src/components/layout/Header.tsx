@@ -1,6 +1,14 @@
+import { Link } from 'react-router'
 import { SearchBar } from '@/components/filters/SearchBar'
 import { OfflineButton } from '@/components/layout/OfflineButton'
-import { HeartIcon, MoonIcon, PixelSpriteIcon, PokeballIcon, SunIcon } from '@/components/ui/icons'
+import {
+  HeartIcon,
+  MoonIcon,
+  PixelSpriteIcon,
+  PokeballIcon,
+  SunIcon,
+  SwordsIcon,
+} from '@/components/ui/icons'
 import { useSpriteMode } from '@/hooks/use-sprite-mode'
 import { useTheme } from '@/hooks/use-theme'
 
@@ -30,6 +38,18 @@ export function Header({
           <span className="font-black text-ink text-xl tracking-tight">
             Poké<span className="text-accent">dex</span>
           </span>
+
+          {/* À gauche, contre le logo : les quatre contrôles de droite
+              forment déjà un groupe dense, et le combat n'est pas un
+              réglage d'affichage mais un autre mode. */}
+          <Link
+            to="/combat"
+            title="Combat à deux sur ce téléphone"
+            className="ml-1 flex items-center gap-1.5 rounded-full border border-line bg-panel-soft px-3 py-1.5 font-semibold text-ink-soft text-sm transition hover:border-accent hover:text-ink"
+          >
+            <SwordsIcon className="size-4" />
+            <span className="hidden sm:inline">Combat</span>
+          </Link>
         </div>
 
         <div className="order-3 flex w-full items-center gap-2 sm:order-none sm:w-auto sm:flex-1">

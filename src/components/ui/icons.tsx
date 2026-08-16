@@ -192,6 +192,37 @@ export const CheckIcon = ({ className = '' }: IconProps) => (
   </svg>
 )
 
+export const SwordsIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M14.5 14.5 20 20M20 4l-8.5 8.5M4 4l8.5 8.5M9.5 14.5 4 20" />
+    <path d="M17.5 4H20v2.5M6.5 4H4v2.5M17.5 20H20v-2.5M6.5 20H4v-2.5" />
+  </svg>
+)
+
+export const SwapIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5" />
+  </svg>
+)
+
 export const PokeballIcon = ({ className = '' }: IconProps) => (
   <svg viewBox="0 0 100 100" aria-hidden="true" className={`${base} ${className}`}>
     <circle cx="50" cy="50" r="45" fill="currentColor" opacity=".18" />
