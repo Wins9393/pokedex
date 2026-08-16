@@ -1,6 +1,17 @@
+import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router'
-import { BattlePage } from '@/pages/BattlePage'
+import { LoadingScreen } from '@/components/ui/StateScreens'
 import { PokedexPage } from '@/pages/PokedexPage'
+
+/*
+ * Le mode combat sort du paquet principal : moteur, arène et sélection
+ * d'équipe ne servent qu'à ceux qui y entrent, et le Pokédex se charge
+ * plus vite sans eux. Le service worker précache tous les fichiers du
+ * build, chunk compris, donc le hors-ligne n'y perd rien.
+ */
+const BattlePage = lazy(() =>
+  import('@/pages/BattlePage').then((module) => ({ default: module.BattlePage })),
+)
 
 export default function App() {
   return (
@@ -9,7 +20,14 @@ export default function App() {
           reste montée derrière, donc le scroll et les filtres survivent. */}
       <Route path="/" element={<PokedexPage />} />
       <Route path="/pokemon/:id" element={<PokedexPage />} />
-      <Route path="/combat" element={<BattlePage />} />
+      <Route
+        path="/combat"
+        element={
+          <Suspense fallback={<LoadingScreen label="Chargement du mode combat…" />}>
+            <BattlePage />
+          </Suspense>
+        }
+      />
       <Route path="*" element={<PokedexPage />} />
     </Routes>
   )
