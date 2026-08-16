@@ -22,6 +22,7 @@ import {
 import { dureeEvenement, texteEvenement } from '@/lib/battle/log'
 import { graineAleatoire } from '@/lib/battle/rng'
 import type { Action, BattleEvent, BattleState, Side, Team } from '@/lib/battle/types'
+import type { TypeChart } from '@/lib/type-chart'
 
 /* ------------------------------------------------------------------ *
  * Écrans
@@ -301,6 +302,7 @@ export function BattlePage() {
               ecran={ecran}
               affiche={affiche}
               etat={etat}
+              chart={chart}
               message={message}
               impact={impact}
               onAction={choisirAction}
@@ -349,6 +351,7 @@ type CombatProps = {
   ecran: Ecran
   affiche: BattleState
   etat: BattleState
+  chart: TypeChart | undefined
   message: string | null
   impact: Side | null
   onAction: (action: Action) => void
@@ -360,6 +363,7 @@ function Combat({
   ecran,
   affiche,
   etat,
+  chart,
   message,
   impact,
   onAction,
@@ -408,8 +412,19 @@ function Combat({
 
       <div className="mt-4">
         {ecran.kind === 'choix' && (
+          /*
+           * La clé force le remontage à chaque changement de joueur ou de
+           * Pokémon. Sans elle le panneau garde son état interne : un joueur
+           * qui a ouvert « Changer de Pokémon » passe la main, et le suivant
+           * ouvre son tour sur la liste de changement au lieu de ses
+           * attaques. Entre les deux choix d'un même tour, l'écran reste sur
+           * `choix` et rien ne provoque le démontage.
+           */
           <ActionPanel
+            key={`${ecran.side}-${actif(etat, ecran.side).id}`}
             battler={actif(etat, ecran.side)}
+            adversaire={actif(etat, (1 - ecran.side) as Side)}
+            chart={chart}
             remplacants={remplacantsDisponibles(etat, ecran.side)}
             onAction={onAction}
           />

@@ -1,16 +1,43 @@
 import { useState } from 'react'
 import { TypeBadge } from '@/components/ui/TypeBadge'
 import { ArrowLeftIcon, SwapIcon } from '@/components/ui/icons'
+import { efficaciteContre } from '@/lib/battle/damage'
 import type { Action, Battler } from '@/lib/battle/types'
 import { typeColor, typeGradient } from '@/lib/pokemon-types'
+import { formatMultiplier } from '@/lib/type-chart'
+import type { TypeChart } from '@/lib/type-chart'
 import { artworkUrl } from '@/lib/sprites'
 
 type Remplacant = { battler: Battler; index: number }
 
 type Props = {
   battler: Battler
+  /** Le Pokémon en face, pour annoncer l'efficacité de chaque attaque. */
+  adversaire: Battler
+  chart: TypeChart | undefined
   remplacants: Remplacant[]
   onAction: (action: Action) => void
+}
+
+/*
+ * Sémantique **offensive**, à ne pas confondre avec celle de la grille de
+ * faiblesses : là-bas un ×4 est une mauvaise nouvelle puisqu'on le subit,
+ * ici c'est la meilleure. Les couleurs sont donc inversées.
+ */
+type Efficacite = 'super' | 'neutre' | 'faible' | 'nul'
+
+const EFFICACITE: Record<Efficacite, { style: string; libelle: string }> = {
+  super: { style: 'bg-emerald-500/15 text-emerald-500', libelle: 'Super efficace' },
+  neutre: { style: 'bg-ink-faint/10 text-ink-faint', libelle: 'Efficacité normale' },
+  faible: { style: 'bg-orange-500/15 text-orange-500', libelle: 'Pas très efficace' },
+  nul: { style: 'bg-ink-faint/15 text-ink-faint line-through', libelle: 'Sans effet' },
+}
+
+const efficaciteDe = (multiplicateur: number): Efficacite => {
+  if (multiplicateur === 0) return 'nul'
+  if (multiplicateur > 1) return 'super'
+  if (multiplicateur < 1) return 'faible'
+  return 'neutre'
 }
 
 /**
@@ -57,7 +84,7 @@ export function ListeRemplacants({
   )
 }
 
-export function ActionPanel({ battler, remplacants, onAction }: Props) {
+export function ActionPanel({ battler, adversaire, chart, remplacants, onAction }: Props) {
   const [mode, setMode] = useState<'attaques' | 'changement'>('attaques')
 
   if (mode === 'changement') {
@@ -96,12 +123,16 @@ export function ActionPanel({ battler, remplacants, onAction }: Props) {
           const epuise = pp <= 0
           const couleur = typeColor(move.type)
 
+          const multiplicateur = chart ? efficaciteContre(chart, move, adversaire.types) : 1
+          const efficacite = EFFICACITE[efficaciteDe(multiplicateur)]
+
           return (
             <button
               key={slot}
               type="button"
               disabled={epuise}
               onClick={() => onAction({ kind: 'move', slot })}
+              title={`${move.name} — ${efficacite.libelle} contre ${adversaire.name}`}
               className={`rounded-2xl border px-3 py-2.5 text-left transition ${
                 epuise ? 'border-line opacity-40' : 'hover:brightness-110'
               }`}
@@ -110,7 +141,16 @@ export function ActionPanel({ battler, remplacants, onAction }: Props) {
                 backgroundImage: epuise ? undefined : typeGradient([move.type], 18),
               }}
             >
-              <span className="block truncate font-bold text-ink text-sm">{move.name}</span>
+              <span className="flex items-baseline justify-between gap-1.5">
+                <span className="truncate font-bold text-ink text-sm">{move.name}</span>
+                {/* Le multiplicateur exact plutôt qu'un mot : il tient dans un
+                    coin, se lit d'un coup d'œil, et distingue le ×2 du ×4. */}
+                <span
+                  className={`shrink-0 rounded-md px-1.5 py-0.5 font-black text-[10px] tabular-nums ${efficacite.style}`}
+                >
+                  {formatMultiplier(multiplicateur)}
+                </span>
+              </span>
 
               <span className="mt-1.5 flex items-center justify-between gap-2">
                 <TypeBadge type={move.type} size="xs" />

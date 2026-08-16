@@ -32,7 +32,8 @@ npm run dev
   hors ligne complet, avec progression et annulation. Il se grise dès que tout est déjà en cache,
   et une reprise après interruption ne retélécharge que ce qui manque.
 - **Mode combat à deux sur un seul téléphone** : chaque joueur compose une équipe de trois, puis les
-  deux choisissent leur action derrière un écran de passage avant que le tour ne se résolve.
+  deux choisissent leur action derrière un écran de passage avant que le tour ne se résolve. Chaque
+  attaque annonce son efficacité contre le Pokémon en face.
 
 ## Choix techniques
 
@@ -138,9 +139,20 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   l'index seul tenait dans 5 Mo, les fiches non.
 - **PokéAPI limite le débit sans le dire.** Passé environ deux cents requêtes rapprochées, ses
   réponses perdent l'en-tête `Access-Control-Allow-Origin` et échouent donc toutes d'un coup, sans
-  jamais renvoyer de `429`. Le préchargement intégral avance à cadence auto-ajustée : la pause
-  entre deux requêtes s'allonge à chaque échec et redescend quand ça repasse, ce qui suit la
-  limite sans avoir à la connaître.
+  jamais renvoyer de `429`.
+- **Contre cette limite, ralentir ne suffit pas : il faut demander moins souvent.** Le
+  téléchargement intégral émettait une requête par Pokémon, soit plus d'un millier, et se faisait
+  couper autour de la deux centième — il plafonnait à 10 %. Toutes les requêtes d'API partent
+  désormais par lots : 52 pour les fiches (vingt à la fois), 18 pour les capacités (soixante), une
+  pour la table d'attaques. **71 requêtes au lieu de 1044**, et le dex entier arrive en une
+  vingtaine de secondes. La cadence auto-ajustée reste, mais comme filet plutôt que comme parade.
+- **Un blocage d'API ne doit pas emporter les images.** Elles viennent d'un CDN qui n'a rien à voir
+  avec PokéAPI : le blocage est donc propre à chaque phase, et les sprites se téléchargent même si
+  l'API vient de couper.
+- **Une fiche écrite avec `setQueryData` n'est observée par personne**, donc soumise au `gcTime`
+  par défaut : elle disparaîtrait cinq minutes plus tard, avant la prochaine écriture sur disque.
+  D'où le `setQueryDefaults` sur `['pokedex', 'detail']` dans `main.tsx`, qui couvre les fiches
+  réparties par lots en plus de celles demandées à l'unité.
 - **L'API Resource Timing ment sur les ressources cross-origin.** Sans en-tête
   `Timing-Allow-Origin`, `transferSize` et `decodedBodySize` valent toujours `0` : s'en servir
   pour distinguer une requête réussie d'une requête échouée donne un compte entièrement faux.
@@ -158,6 +170,11 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   la colonne s'étirant à la taille de son contenu, la zone en `overflow-y` ne défilait plus et le
   virtualiseur montait les 1025 lignes d'un coup. `h-dvh` contraint la colonne, et le DOM retombe
   à dix-sept lignes.
+- **L'état interne d'un composant survit tant qu'il ne se démonte pas.** Entre les deux choix d'un
+  même tour, l'écran reste sur `choix` : le panneau d'action n'est jamais démonté, et un joueur qui
+  venait d'ouvrir « Changer de Pokémon » passait la main à un adversaire dont le tour s'ouvrait sur
+  la liste de changement au lieu de ses attaques. Une `key` portant le camp et le Pokémon force le
+  remontage.
 - **Un écran qui masque ne doit pas apparaître en fondu.** L'écran de passage entre les deux joueurs
   était monté avec une transition d'opacité : le temps qu'elle se joue, le choix à cacher restait
   lisible par transparence — et si les images s'interrompent, le voile peut ne jamais devenir
