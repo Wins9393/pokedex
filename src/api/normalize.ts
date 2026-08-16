@@ -8,6 +8,8 @@ import type {
   EfficacyRow,
   EvolutionNode,
   FlavorEntry,
+  Move,
+  Movesets,
   PokedexIndexData,
   PokemonDetail,
   PokemonForm,
@@ -442,4 +444,65 @@ export function normalizeDetail(raw: RawDetailResponse): PokemonDetail | null {
     forms,
     evolution: buildEvolutionTree(species.chain),
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Mode combat
+ * ------------------------------------------------------------------ */
+
+type RawMove = {
+  id: number
+  power: number
+  accuracy: number | null
+  pp: number
+  priority: number
+  type: RawName
+  movedamageclass: RawName
+  movenames: RawName[]
+}
+
+export type RawMovesResponse = { move: RawMove[] }
+
+export type RawMovesetsResponse = {
+  pokemon: { id: number; moves: { move_id: number }[] }[]
+}
+
+/**
+ * La requête filtre déjà sur les attaques offensives, mais rien ne garantit
+ * côté types qu'une ligne soit exploitable : on écarte ici les rares
+ * enregistrements dont le type ou la classe sortiraient du référentiel,
+ * plutôt que de laisser un `undefined` traverser jusqu'au calcul de dégâts.
+ */
+export function normalizeMoves(raw: RawMovesResponse): Move[] {
+  const moves: Move[] = []
+
+  for (const move of raw.move) {
+    const type = move.type.name
+    const category = move.movedamageclass.name
+    const name = move.movenames[0]?.name
+
+    if (!name || !KNOWN_TYPES.has(type)) continue
+    if (category !== 'physical' && category !== 'special') continue
+
+    moves.push({
+      id: move.id,
+      name,
+      type: type as TypeName,
+      power: move.power,
+      accuracy: move.accuracy,
+      pp: move.pp,
+      priority: move.priority,
+      category,
+    })
+  }
+
+  return moves
+}
+
+export function normalizeMovesets(raw: RawMovesetsResponse): Movesets {
+  const movesets: Movesets = {}
+  for (const entry of raw.pokemon) {
+    movesets[entry.id] = entry.moves.map((link) => link.move_id)
+  }
+  return movesets
 }

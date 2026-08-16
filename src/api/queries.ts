@@ -1,5 +1,5 @@
 /**
- * Les deux seules requêtes de l'application.
+ * Les requêtes de l'application.
  *
  * `language_id: 5` = français, `9` = anglais (filet de sécurité pour les
  * 127 espèces récentes dont les descriptions ne sont pas traduites).
@@ -233,6 +233,102 @@ export const DETAIL_QUERY = /* GraphQL */ `
             }
           }
         }
+      }
+    }
+  }
+`
+
+/* ------------------------------------------------------------------ *
+ * Mode combat
+ * ------------------------------------------------------------------ */
+
+/**
+ * Identifiants d'effets à écarter : ces attaques agissent sur deux tours
+ * (Lance-Soleil charge, Ultralaser récupère, Vol disparaît puis frappe).
+ * Le moteur ne simulant pas les tours d'attente, les garder reviendrait à
+ * offrir leur puissance sans leur contrepartie.
+ *
+ * La liste n'est pas devinée : elle vient des textes d'effet de l'API,
+ * filtrés sur les mentions de charge, de récupération et d'invulnérabilité.
+ */
+const EFFETS_DEUX_TOURS = [40, 152, 156, 256, 257, 264, 273, 312]
+
+/**
+ * Le vivier d'attaques du mode combat — 394 attaques, toutes nommées en
+ * français, en une requête de 60 Ko (6 Ko compressés).
+ *
+ * Les exclusions sont pilotées par les données plutôt que par une liste de
+ * noms à maintenir, et visent uniquement les attaques qu'ignorer leur effet
+ * rendrait déséquilibrées :
+ *
+ * - `power` nul       → attaques de statut, hors sujet pour ce moteur
+ * - `power` > 120     → gros coups à contrepartie (Ultralaser, Explosion)
+ * - `drain` < 0       → contrecoup (Damoclès, Bélier)
+ * - `min_hits` non nul→ coups multiples, dont la puissance est par coup
+ * - catégorie `unique`→ mécaniques propres (Prescience frappe deux tours après)
+ *
+ * Les effets secondaires mineurs, eux, sont conservés mais non simulés :
+ * Lance-Flammes inflige ses dégâts sans jamais brûler. Les exclure aurait
+ * vidé le jeu de ses attaques emblématiques.
+ */
+export const MOVES_QUERY = /* GraphQL */ `
+  query BattleMoves {
+    move(
+      order_by: { id: asc }
+      where: {
+        power: { _is_null: false, _lte: 120 }
+        pp: { _is_null: false }
+        move_effect_id: { _nin: [${EFFETS_DEUX_TOURS.join(', ')}] }
+        movemeta: {
+          drain: { _gte: 0 }
+          min_hits: { _is_null: true }
+          movemetacategory: { name: { _neq: "unique" } }
+        }
+      }
+    ) {
+      id
+      power
+      accuracy
+      pp
+      priority
+      type {
+        name
+      }
+      movedamageclass {
+        name
+      }
+      movenames(where: { language_id: { _eq: ${LANG_FR} } }) {
+        name
+      }
+    }
+  }
+`
+
+/**
+ * Les capacités apprises par un lot de Pokémon.
+ *
+ * `distinct_on: move_id` combiné à `version_group_id: desc` renvoie une
+ * seule ligne par attaque, celle du jeu le plus récent où le Pokémon
+ * l'apprend. Sans lui, il faudrait choisir un jeu de référence et gérer à
+ * la main les Pokémon qui en sont absents — ceux qui ne figurent pas dans
+ * Écarlate/Violet n'y ont aucune capacité.
+ *
+ * Méthodes 1 et 4 = montée de niveau et CT, les deux seules qui décrivent
+ * ce qu'un Pokémon sait faire sans passer par un échange ou un événement.
+ *
+ * Interroger par lots plutôt qu'un par un : le dex entier tient en 18
+ * requêtes (2,2 Mo, 121 Ko compressés).
+ */
+export const MOVESETS_QUERY = /* GraphQL */ `
+  query PokemonMovesets($ids: [Int!]!) {
+    pokemon(where: { id: { _in: $ids } }) {
+      id
+      moves: pokemonmoves(
+        distinct_on: move_id
+        order_by: [{ move_id: asc }, { version_group_id: desc }]
+        where: { move_learn_method_id: { _in: [1, 4] } }
+      ) {
+        move_id
       }
     }
   }

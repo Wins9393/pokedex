@@ -121,3 +121,32 @@ export type PokemonDetail = {
   forms: PokemonForm[]
   evolution: EvolutionNode[]
 }
+
+/* ------------------------------------------------------------------ *
+ * Mode combat
+ * ------------------------------------------------------------------ */
+
+/** Physique tape sur la Défense, spéciale sur la Défense Spéciale. */
+export type MoveCategory = 'physical' | 'special'
+
+/** Une attaque du vivier de combat. Toujours offensive : `power` est garanti. */
+export type Move = {
+  id: number
+  /** Nom français, ex. `Lance-Flammes`. */
+  name: string
+  type: TypeName
+  power: number
+  /** Pourcentage de réussite. `null` = ne rate jamais, comme Météores. */
+  accuracy: number | null
+  pp: number
+  /** Positive = frappe avant les attaques ordinaires, comme Vive-Attaque (+1). */
+  priority: number
+  category: MoveCategory
+}
+
+/**
+ * Les attaques apprenables, par numéro de Pokédex. Ne contient que des
+ * identifiants : les attaques elles-mêmes vivent dans la table commune,
+ * chargée une fois pour tout le jeu.
+ */
+export type Movesets = Record<number, number[]>
