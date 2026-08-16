@@ -31,6 +31,8 @@ npm run dev
 - **Téléchargement intégral** : un bouton précharge les 1025 fiches et leurs images pour un usage
   hors ligne complet, avec progression et annulation. Il se grise dès que tout est déjà en cache,
   et une reprise après interruption ne retélécharge que ce qui manque.
+- **Mode combat à deux sur un seul téléphone** : chaque joueur compose une équipe de trois, puis les
+  deux choisissent leur action derrière un écran de passage avant que le tour ne se résolve.
 
 ## Choix techniques
 
@@ -51,6 +53,38 @@ Les fiches détaillées sont chargées à la demande, puis persistées elles aus
 une fois le reste hors ligne, définitivement. Une fiche pèse une trentaine de kilooctets une fois
 normalisée, contre 40 Ko en moyenne dans la réponse brute — les 1025 tiendraient dans une dizaine
 de mégaoctets.
+
+### Le mode combat
+
+Deux joueurs, un téléphone. Équipes de trois, changement possible au prix du tour, et des choix
+**simultanés** : chacun décide derrière un écran de passage, puis la Vitesse arbitre l'ordre — comme
+dans les jeux, où l'on ne sait pas ce que l'adversaire a choisi.
+
+Le moteur est **une fonction pure, sans React** (`src/lib/battle/`). Il ne renvoie pas seulement
+l'état d'arrivée mais **le récit du tour** sous forme d'événements, que l'interface rejoue un par un.
+C'est ce qui donne gratuitement le journal de combat et le rythme des animations — et ce qui
+permettra, le jour venu, de faire jouer deux téléphones en n'échangeant que les deux actions.
+
+L'aléatoire passe par un générateur à graine. Sans lui le moteur serait intestable, et deux
+`Math.random()` indépendants feraient diverger deux écrans dès le deuxième tour.
+
+**Ce qui est simulé** : dégâts, table des types, STAB, coups critiques, PP, précision, priorité.
+**Ce qui ne l'est pas** : statuts et changements de statistiques. Conséquence assumée, à connaître —
+Lance-Flammes inflige ses dégâts mais ne brûle jamais. Écarter toutes les attaques à effet
+secondaire aurait vidé le jeu de ses classiques.
+
+En revanche, le vivier écarte les attaques qu'ignorer leur contrepartie rendrait abusives, sur des
+critères lus dans les données et non sur une liste de noms à maintenir : contrecoup (`drain < 0`),
+coups multiples (`min_hits`), deux tours (`move_effect_id`, liste dérivée des textes d'effet de
+l'API), puissance supérieure à 120, et la catégorie `unique`. Il reste **394 attaques**, et chacun
+des 18 types en compte au moins quatre.
+
+Le calcul étant invisible à l'œil nu — un arrondi de travers ne se voit que dans des chiffres
+légèrement faux —, il est vérifié hors interface sur des valeurs calculées à la main :
+
+```bash
+npm run verify:battle
+```
 
 ### Pièges rencontrés
 
@@ -116,6 +150,24 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 - **Les sprites sont servis sans CORS**, donc leurs réponses sont opaques et portent le statut
   `0`. Sans `cacheableResponse: { statuses: [0, 200] }`, Workbox les rejetterait en silence et
   le cache resterait vide.
+- **`distinct_on` évite d'avoir à choisir un jeu de référence pour les capacités.** Un Pokémon
+  absent d'Écarlate/Violet n'y apprend rien ; interroger un seul `version_group` laisserait donc
+  des listes vides. Combiné à `order_by: version_group_id desc`, `distinct_on: move_id` renvoie
+  directement une ligne par attaque, celle du jeu le plus récent où elle s'apprend.
+- **Une hauteur *minimale* casse la virtualisation.** Le sélecteur d'équipe était en `min-h-dvh` :
+  la colonne s'étirant à la taille de son contenu, la zone en `overflow-y` ne défilait plus et le
+  virtualiseur montait les 1025 lignes d'un coup. `h-dvh` contraint la colonne, et le DOM retombe
+  à dix-sept lignes.
+- **Un écran qui masque ne doit pas apparaître en fondu.** L'écran de passage entre les deux joueurs
+  était monté avec une transition d'opacité : le temps qu'elle se joue, le choix à cacher restait
+  lisible par transparence — et si les images s'interrompent, le voile peut ne jamais devenir
+  opaque. Il est désormais opaque dès la première image, sans animation d'entrée ni de sortie.
+- **Les sprites du jeu sont du pixel art minuscule** : la face de Bulbizarre fait 45 × 49 px pour un
+  cadre cinq fois plus grand. Les agrandir en lissant les rend flous ; `image-rendering: pixelated`
+  restitue le rendu d'origine. Seule l'illustration officielle, en haute définition, reste lissée.
+- **`size-[n%]` ne donne pas un carré.** Le pourcentage se rapporte à la largeur du parent pour la
+  largeur et à sa hauteur pour la hauteur : dans une arène en 16/10, la boîte obtenue est aplatie et
+  les sprites s'y retrouvent tassés. `aspect-square` avec une largeur en pourcentage, lui, tient.
 
 ### Structure
 
@@ -123,9 +175,10 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 src/
 ├── api/        client GraphQL, requêtes, normalisation des réponses
 ├── lib/        recherche, filtres, table des types, sprites, formatage
-├── hooks/      index, fiche, filtres (URL), favoris, thème, cri, inclinaison 3D
-├── components/ layout · grid · filters · detail · ui
-└── pages/      PokedexPage
+│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, tours
+├── hooks/      index, fiche, attaques, filtres (URL), favoris, thème, cri, inclinaison 3D
+├── components/ layout · grid · filters · detail · battle · ui
+└── pages/      PokedexPage · BattlePage
 ```
 
 `src/api/normalize.ts` est le seul fichier qui connaît la forme brute de l'API : il aplatit les
@@ -157,6 +210,7 @@ Deux points méritent l'attention :
 | `npm run build` | Vérification des types puis build de production |
 | `npm run preview` | Sert le build de production |
 | `npm run lint` | oxlint |
+| `npm run verify:battle` | Contrôle le moteur de combat sur des valeurs de référence |
 
 ## Crédits
 

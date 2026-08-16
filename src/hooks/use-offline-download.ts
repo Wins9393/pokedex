@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { gql } from '@/api/client'
-import { DETAIL_QUERY } from '@/api/queries'
-import { normalizeDetail } from '@/api/normalize'
-import type { RawDetailResponse } from '@/api/normalize'
+import { DETAIL_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
+import { normalizeDetail, normalizeMoves, normalizeMovesets } from '@/api/normalize'
+import type { RawDetailResponse, RawMovesResponse, RawMovesetsResponse } from '@/api/normalize'
+import { MOVES_QUERY_KEY, movesetsKey } from '@/hooks/use-moves'
 import { artworkUrl, showdownUrl } from '@/lib/sprites'
 
 /** Nom du cache déclaré dans la règle Workbox de `vite.config.ts`. */
@@ -27,6 +28,24 @@ const ECHECS_CONSECUTIFS_MAX = 30
 
 /** Publication de l'avancement : au fichier près, ce serait des milliers de rendus. */
 const PERIODE_RAFRAICHISSEMENT = 200
+
+/**
+ * Les capacités du mode combat se demandent par lots. Soixante Pokémon par
+ * requête ramènent le dex entier en dix-huit allers-retours au lieu de
+ * 1025 — le même travail, mais sans réveiller la limitation de débit.
+ */
+const TAILLE_LOT_CAPACITES = 60
+
+const lotsDeCapacites = (ids: number[]): number[][] => {
+  const lots: number[][] = []
+  for (let debut = 0; debut < ids.length; debut += TAILLE_LOT_CAPACITES) {
+    lots.push(ids.slice(debut, debut + TAILLE_LOT_CAPACITES))
+  }
+  return lots
+}
+
+const enCache = (client: QueryClient, cle: readonly unknown[]) =>
+  client.getQueryState([...cle])?.status === 'success'
 
 export type EtatHorsLigne = 'mesure' | 'partiel' | 'encours' | 'complet'
 
@@ -90,7 +109,13 @@ async function mesurer(client: QueryClient, ids: number[]) {
    */
   const images = ids.filter((id) => presentes.has(artworkUrl(id))).length
 
-  return { fiches, images }
+  // Données du mode combat : la table des attaques, puis les capacités par lots.
+  const lots = lotsDeCapacites(ids)
+  const combat =
+    (enCache(client, MOVES_QUERY_KEY) ? 1 : 0) +
+    lots.filter((lot) => enCache(client, movesetsKey(lot))).length
+
+  return { fiches, images, combat, combatRequis: lots.length + 1 }
 }
 
 /**
@@ -163,9 +188,13 @@ export function useOfflineDownload(ids: number[]) {
 
   const rafraichir = useCallback(async () => {
     if (ids.length === 0) return
-    const { fiches, images } = await mesurer(client, ids)
+    const { fiches, images, combat, combatRequis } = await mesurer(client, ids)
     const imagesRequises = serviceWorkerActif() ? ids.length : 0
-    setEtat(fiches >= ids.length && images >= imagesRequises ? 'complet' : 'partiel')
+    setEtat(
+      fiches >= ids.length && images >= imagesRequises && combat >= combatRequis
+        ? 'complet'
+        : 'partiel',
+    )
   }, [client, ids])
 
   useEffect(() => {
@@ -216,7 +245,44 @@ export function useOfflineDownload(ids: number[]) {
       (url) => () => precharger(url, abandon.signal),
     )
 
-    const total = donnees.length + images.length
+    /*
+     * Les données du mode combat rejoignent la file : dix-neuf requêtes en
+     * tout, contre plus d'un millier pour les fiches. Elles passent en
+     * premier, pour qu'un téléchargement interrompu tôt laisse quand même
+     * les combats jouables hors ligne.
+     */
+    const combat: Array<() => Promise<unknown>> = []
+
+    if (!enCache(client, MOVES_QUERY_KEY)) {
+      combat.push(() =>
+        client.fetchQuery({
+          queryKey: [...MOVES_QUERY_KEY],
+          queryFn: async ({ signal }) =>
+            normalizeMoves(await gql<RawMovesResponse>(MOVES_QUERY, undefined, signal)),
+          staleTime: Infinity,
+          gcTime: Infinity,
+          retry: false,
+        }),
+      )
+    }
+
+    for (const lot of lotsDeCapacites(ids)) {
+      if (enCache(client, movesetsKey(lot))) continue
+      combat.push(() =>
+        client.fetchQuery({
+          queryKey: [...movesetsKey(lot)],
+          queryFn: async ({ signal }) =>
+            normalizeMovesets(
+              await gql<RawMovesetsResponse>(MOVESETS_QUERY, { ids: lot }, signal),
+            ),
+          staleTime: Infinity,
+          gcTime: Infinity,
+          retry: false,
+        }),
+      )
+    }
+
+    const total = combat.length + donnees.length + images.length
     const rapport: Rapport = { fait: 0, echecs: 0, bloque: false }
 
     setProgression({ fait: 0, total, echecs: 0 })
@@ -228,7 +294,10 @@ export function useOfflineDownload(ids: number[]) {
     )
 
     try {
-      await executer(donnees, CONCURRENCE_DONNEES, abandon.signal, rapport)
+      await executer(combat, CONCURRENCE_DONNEES, abandon.signal, rapport)
+      if (!rapport.bloque && !abandon.signal.aborted) {
+        await executer(donnees, CONCURRENCE_DONNEES, abandon.signal, rapport)
+      }
       if (!rapport.bloque && !abandon.signal.aborted) {
         await executer(images, CONCURRENCE_IMAGES, abandon.signal, rapport)
       }

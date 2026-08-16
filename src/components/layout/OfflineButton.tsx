@@ -35,7 +35,14 @@ export function OfflineButton() {
   }
 
   const complet = etat === 'complet'
-  const volume = avecImages ? '≈ 200 Mo' : '≈ 40 Mo, images exclues hors production'
+
+  /*
+   * Volumes mesurés, non estimés : ~5,7 Ko par fiche persistée (soit ~6 Mo
+   * pour les 1025), ~2,3 Mo pour les données de combat, et ~164 Mo de
+   * sprites. Les premières projections tablaient sur 40 Mo de fiches, sept
+   * fois trop.
+   */
+  const volume = avecImages ? '≈ 175 Mo' : '≈ 9 Mo, images exclues hors production'
 
   /*
    * Un blocage n'est pas un échec définitif : PokéAPI limite le débit, et
