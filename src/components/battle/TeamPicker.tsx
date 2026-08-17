@@ -1,34 +1,42 @@
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
+import { AnimatePresence } from 'motion/react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Link } from 'react-router'
-import type { PokemonSummary } from '@/api/models'
+import type { BattleForm, PokemonSummary } from '@/api/models'
+import { FormSheet } from '@/components/battle/FormSheet'
 import { ActiveFilterChips } from '@/components/filters/ActiveFilterChips'
 import { FilterDrawer } from '@/components/filters/FilterDrawer'
 import { FilterPanel } from '@/components/filters/FilterPanel'
 import { ResultsBar } from '@/components/filters/ResultsBar'
+import { FallbackImage } from '@/components/ui/FallbackImage'
 import { TypeBadge } from '@/components/ui/TypeBadge'
-import { ArrowLeftIcon, CloseIcon, SearchIcon } from '@/components/ui/icons'
+import { ArrowLeftIcon, CloseIcon, SearchIcon, SparklesIcon } from '@/components/ui/icons'
 import { useFavorites } from '@/hooks/use-favorites'
 import { useLocalFilters } from '@/hooks/use-filters'
 import { TAILLE_EQUIPE } from '@/lib/battle/types'
+import type { Choix } from '@/lib/battle/types'
 import { applyFilters, computeBounds } from '@/lib/filters'
 import { formatDexNumber } from '@/lib/format'
 import { typeGradient } from '@/lib/pokemon-types'
-import { artworkUrl } from '@/lib/sprites'
+import { artworkUrl, vignetteSources } from '@/lib/sprites'
 
 const HAUTEUR_LIGNE = 68
 
 type Props = {
   pokemon: PokemonSummary[]
   player: 1 | 2
-  onDone: (ids: number[]) => void
+  /** Formes jouables par espèce, `undefined` tant que la table n'est pas là. */
+  formes: ReadonlyMap<number, BattleForm[]> | undefined
+  onDone: (choix: Choix[]) => void
 }
 
-export function TeamPicker({ pokemon, player, onDone }: Props) {
+export function TeamPicker({ pokemon, player, formes, onDone }: Props) {
   const controleur = useLocalFilters()
   const { favorites } = useFavorites()
-  const [choisis, setChoisis] = useState<number[]>([])
+  const [choisis, setChoisis] = useState<Choix[]>([])
   const [tiroirOuvert, setTiroirOuvert] = useState(false)
+  /** Index de l'emplacement dont la feuille de forme est ouverte. */
+  const [feuille, setFeuille] = useState<number | null>(null)
   const listeRef = useRef<HTMLDivElement>(null)
 
   // Même traitement que la grille : la recherche traverse 1025 entrées,
@@ -53,18 +61,54 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
     overscan: 8,
   })
 
-  const basculer = (id: number) => {
+  /*
+   * Une espèce ne peut occuper qu'un emplacement : deux entrées identiques
+   * dans une équipe rendraient le journal de combat ambigu, et le choix de
+   * forme se ferait sur un emplacement qu'on ne saurait plus désigner.
+   */
+  const basculer = (speciesId: number) => {
     setChoisis((actuels) =>
-      actuels.includes(id)
-        ? actuels.filter((x) => x !== id)
+      actuels.some((choix) => choix.speciesId === speciesId)
+        ? actuels.filter((choix) => choix.speciesId !== speciesId)
         : actuels.length < TAILLE_EQUIPE
-          ? [...actuels, id]
+          ? [...actuels, { speciesId, formId: null, shiny: false }]
           : actuels,
     )
   }
 
+  const modifier = (index: number, choix: Choix) =>
+    setChoisis((actuels) => actuels.map((actuel, i) => (i === index ? choix : actuel)))
+
+  const retirer = (index: number) => {
+    setChoisis((actuels) => actuels.filter((_, i) => i !== index))
+    setFeuille(null)
+  }
+
   const parId = useMemo(() => new Map(pokemon.map((p) => [p.id, p])), [pokemon])
   const complet = choisis.length === TAILLE_EQUIPE
+
+  const retenus = useMemo(
+    () => new Set(choisis.map((choix) => choix.speciesId)),
+    [choisis],
+  )
+
+  /** L'apparence d'un emplacement : nom, sprite et badge dépendent de la forme. */
+  const apercu = (choix: Choix) => {
+    const espece = parId.get(choix.speciesId)
+    const disponibles = formes?.get(choix.speciesId) ?? []
+    const forme = choix.formId
+      ? disponibles.find((candidate) => candidate.id === choix.formId)
+      : undefined
+
+    return {
+      espece,
+      forme,
+      disponibles,
+      name: forme?.name ?? espece?.name ?? '',
+      types: forme?.types ?? espece?.types ?? [],
+      spriteId: forme?.id ?? choix.speciesId,
+    }
+  }
 
   return (
     /*
@@ -99,42 +143,85 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
               retour qui dit ce qui a été choisi sans quitter la liste. */}
           <div className="grid grid-cols-3 gap-2">
             {Array.from({ length: TAILLE_EQUIPE }, (_, index) => {
-              const entry = choisis[index] ? parId.get(choisis[index]) : undefined
+              const choix = choisis[index]
 
               // La clé est la position, jamais l'identifiant du Pokémon :
               // Bulbizarre (n° 1) entrerait sinon en collision avec la clé
               // de l'emplacement vide d'index 1.
-              if (!entry) {
+              if (!choix) {
                 return (
                   <div
                     key={index}
-                    className="grid h-16 place-items-center rounded-2xl border border-line border-dashed text-ink-faint text-xs"
+                    className="grid h-20 place-items-center rounded-2xl border border-line border-dashed px-1 text-center text-ink-faint text-xs"
                   >
                     Emplacement {index + 1}
                   </div>
                 )
               }
 
+              const vue = apercu(choix)
+
+              /*
+               * En colonne, et non en ligne comme les cartes de la liste :
+               * à 375 px un emplacement fait 108 px de large, dont un sprite
+               * et une croix ne laissaient que vingt pixels au nom. Empilé,
+               * le nom dispose de toute la largeur — ce qui devient
+               * nécessaire avec des libellés comme « Ossatueur d'Alola ».
+               *
+               * Deux boutons distincts, et non une croix dans le bouton :
+               * imbriquer des boutons est invalide, et le corps de
+               * l'emplacement a désormais son propre rôle — ouvrir la
+               * feuille de forme — distinct du retrait.
+               */
               return (
-                <button
+                <div
                   key={index}
-                  type="button"
-                  onClick={() => basculer(entry.id)}
-                  title={`Retirer ${entry.name}`}
-                  className="relative flex h-16 items-center gap-1.5 overflow-hidden rounded-2xl border border-line px-2"
-                  style={{ backgroundImage: typeGradient(entry.types, 24) }}
+                  className="relative h-20 overflow-hidden rounded-2xl border border-line"
+                  style={{ backgroundImage: typeGradient(vue.types, 24) }}
                 >
-                  <img
-                    src={artworkUrl(entry.id)}
-                    alt=""
-                    loading="lazy"
-                    className="size-11 shrink-0 object-contain"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-left font-bold text-ink text-xs">
-                    {entry.name}
-                  </span>
-                  <CloseIcon className="size-3.5 shrink-0 text-ink-faint" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeuille(index)}
+                    title={`Forme et couleur : ${vue.name}`}
+                    className="flex size-full flex-col items-center justify-center gap-0.5 px-1.5"
+                  >
+                    <FallbackImage
+                      sources={vignetteSources(vue.spriteId, choix.shiny)}
+                      className="size-9 shrink-0 object-contain"
+                    />
+
+                    <span className="flex w-full items-center justify-center gap-0.5">
+                      <span className="min-w-0 truncate font-bold text-[11px] text-ink">
+                        {vue.name}
+                      </span>
+                      {choix.shiny && <SparklesIcon className="size-3 shrink-0 text-amber-400" />}
+                    </span>
+
+                    {/* Sans forme retenue, l'étiquette signale simplement
+                        qu'il y en a à voir : la feuille se découvre en
+                        tapant l'emplacement, rien d'autre ne le dit. */}
+                    {vue.forme ? (
+                      <span className="max-w-full truncate rounded-full bg-ink/10 px-1.5 font-semibold text-[10px] text-ink-soft">
+                        {vue.forme.shortName}
+                      </span>
+                    ) : (
+                      vue.disponibles.length > 0 && (
+                        <span className="rounded-full border border-line px-1.5 font-semibold text-[10px] text-ink-faint">
+                          Formes
+                        </span>
+                      )
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => retirer(index)}
+                    aria-label={`Retirer ${vue.name}`}
+                    className="absolute top-0.5 right-0.5 grid size-6 place-items-center rounded-full text-ink-faint transition hover:bg-ink/10 hover:text-ink"
+                  >
+                    <CloseIcon className="size-3.5" />
+                  </button>
+                </div>
               )
             })}
           </div>
@@ -167,7 +254,7 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((ligne) => {
               const entry = resultats[ligne.index]
-              const actif = choisis.includes(entry.id)
+              const actif = retenus.has(entry.id)
               const bloque = !actif && complet
 
               return (
@@ -260,6 +347,28 @@ export function TeamPicker({ pokemon, player, onDone }: Props) {
       <FilterDrawer open={tiroirOuvert} onClose={() => setTiroirOuvert(false)} toutesTailles>
         <FilterPanel controller={controleur} bounds={bounds} pokemon={pokemon} />
       </FilterDrawer>
+
+      <AnimatePresence>
+        {feuille !== null &&
+          choisis[feuille] &&
+          (() => {
+            const choix = choisis[feuille]
+            const vue = apercu(choix)
+            if (!vue.espece) return null
+
+            return (
+              <FormSheet
+                key={feuille}
+                espece={vue.espece}
+                formes={vue.disponibles}
+                choix={choix}
+                onChange={(suivant) => modifier(feuille, suivant)}
+                onRetirer={() => retirer(feuille)}
+                onClose={() => setFeuille(null)}
+              />
+            )
+          })()}
+      </AnimatePresence>
     </div>
   )
 }

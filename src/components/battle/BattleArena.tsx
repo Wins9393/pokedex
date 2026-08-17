@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { TypeBadge } from '@/components/ui/TypeBadge'
+import { SparklesIcon } from '@/components/ui/icons'
 import { HealthBar } from './HealthBar'
 import { NIVEAU } from '@/lib/battle/types'
 import type { Battler, Side, Team } from '@/lib/battle/types'
@@ -12,13 +13,32 @@ import { artworkUrl, pixelBackUrl, showdownBackUrl, showdownUrl } from '@/lib/sp
  * la version de dos plus souvent encore. On descend la chaîne de replis à
  * la première erreur de chargement plutôt que d'afficher une image cassée.
  */
-function CombatSprite({ id, dos, ko }: { id: number; dos: boolean; ko: boolean }) {
+function CombatSprite({
+  battler,
+  dos,
+  ko,
+}: {
+  battler: Battler
+  dos: boolean
+  ko: boolean
+}) {
   const [etape, setEtape] = useState(0)
   const reduit = useReducedMotion()
 
-  const sources = dos
-    ? [showdownBackUrl(id), pixelBackUrl(id)]
-    : [showdownUrl(id), artworkUrl(id)]
+  const { spriteId: id, shiny } = battler
+
+  /*
+   * Le dernier repli est toujours en couleurs normales : une forme sans
+   * sprite chromatique doit rester visible plutôt que de laisser un cadre
+   * vide, et hors ligne le chromatique n'est pas préchargé.
+   */
+  const sources = [
+    ...new Set(
+      dos
+        ? [showdownBackUrl(id, shiny), pixelBackUrl(id, shiny), showdownBackUrl(id), pixelBackUrl(id)]
+        : [showdownUrl(id, shiny), artworkUrl(id, shiny), showdownUrl(id), artworkUrl(id)],
+    ),
+  ]
   const index = Math.min(etape, sources.length - 1)
 
   /*
@@ -32,7 +52,6 @@ function CombatSprite({ id, dos, ko }: { id: number; dos: boolean; ko: boolean }
 
   return (
     <motion.img
-      key={id}
       src={sources[index]}
       alt=""
       onError={() => setEtape((valeur) => valeur + 1)}
@@ -86,7 +105,12 @@ function BlocInfos({
       style={{ backgroundImage: typeGradient(battler.types, 20) }}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate font-black text-ink text-sm">{battler.name}</span>
+        <span className="flex min-w-0 items-baseline gap-1">
+          <span className="truncate font-black text-ink text-sm">{battler.name}</span>
+          {battler.shiny && (
+            <SparklesIcon className="size-3 shrink-0 self-center text-amber-400" />
+          )}
+        </span>
         <span className="shrink-0 font-semibold text-ink-faint text-xs">N.{NIVEAU}</span>
       </div>
 
@@ -160,14 +184,30 @@ export function BattleArena({ joueur, adversaire, impact }: Props) {
         animate={secousse(impact === 1)}
         className="absolute top-[6%] right-[8%] aspect-square w-[30%] sm:w-[28%]"
       >
-        <CombatSprite id={adversaire.battler.id} dos={false} ko={adversaire.battler.hp <= 0} />
+        {/*
+          La clé porte sur le composant et non sur l'image : c'est lui qui
+          retient l'étape de repli atteinte. Sans remontage, un Pokémon qui
+          entre après un autre dont le sprite manquait démarrerait sur le
+          repli de son prédécesseur.
+        */}
+        <CombatSprite
+          key={adversaire.battler.spriteId}
+          battler={adversaire.battler}
+          dos={false}
+          ko={adversaire.battler.hp <= 0}
+        />
       </motion.div>
 
       <motion.div
         animate={secousse(impact === 0)}
         className="absolute bottom-[16%] left-[7%] aspect-square w-[40%] sm:w-[36%]"
       >
-        <CombatSprite id={joueur.battler.id} dos ko={joueur.battler.hp <= 0} />
+        <CombatSprite
+          key={joueur.battler.spriteId}
+          battler={joueur.battler}
+          dos
+          ko={joueur.battler.hp <= 0}
+        />
       </motion.div>
 
       <div className="absolute right-3 bottom-3 sm:right-4 sm:bottom-4">

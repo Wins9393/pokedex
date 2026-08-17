@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { FallbackImage } from '@/components/ui/FallbackImage'
 import { TypeBadge } from '@/components/ui/TypeBadge'
 import { ArrowLeftIcon, SwapIcon } from '@/components/ui/icons'
 import { efficaciteContre } from '@/lib/battle/damage'
@@ -6,7 +7,7 @@ import type { Action, Battler } from '@/lib/battle/types'
 import { typeColor, typeGradient } from '@/lib/pokemon-types'
 import { formatMultiplier } from '@/lib/type-chart'
 import type { TypeChart } from '@/lib/type-chart'
-import { artworkUrl } from '@/lib/sprites'
+import { vignetteSources } from '@/lib/sprites'
 
 type Remplacant = { battler: Battler; index: number }
 
@@ -61,10 +62,8 @@ export function ListeRemplacants({
           className="flex items-center gap-2 rounded-2xl border border-line px-3 py-2 text-left transition hover:border-ink-faint"
           style={{ backgroundImage: typeGradient(battler.types, 20) }}
         >
-          <img
-            src={artworkUrl(battler.id)}
-            alt=""
-            loading="lazy"
+          <FallbackImage
+            sources={vignetteSources(battler.spriteId, battler.shiny)}
             className="size-10 shrink-0 object-contain"
           />
           <div className="min-w-0 flex-1">

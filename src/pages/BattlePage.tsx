@@ -8,6 +8,7 @@ import { PassScreen } from '@/components/battle/PassScreen'
 import { TeamPicker } from '@/components/battle/TeamPicker'
 import { ErrorScreen, LoadingScreen } from '@/components/ui/StateScreens'
 import { ArrowLeftIcon, PokeballIcon } from '@/components/ui/icons'
+import { useBattleForms } from '@/hooks/use-forms'
 import { useMoves, useMovesets } from '@/hooks/use-moves'
 import { usePokedex } from '@/hooks/use-pokedex'
 import {
@@ -21,7 +22,7 @@ import {
 } from '@/lib/battle/engine'
 import { dureeEvenement, texteEvenement } from '@/lib/battle/log'
 import { graineAleatoire } from '@/lib/battle/rng'
-import type { Action, BattleEvent, BattleState, Side, Team } from '@/lib/battle/types'
+import type { Action, BattleEvent, BattleState, Choix, Side, Team } from '@/lib/battle/types'
 import type { TypeChart } from '@/lib/type-chart'
 
 /* ------------------------------------------------------------------ *
@@ -74,6 +75,12 @@ function appliquer(etat: BattleState, event: BattleEvent): BattleState {
 export function BattlePage() {
   const { pokemon, byId, chart, isPending, isError, error, refetch } = usePokedex()
   const { byId: movesById, isPending: movesPending, isError: movesError } = useMoves()
+  /*
+   * Les formes ne bloquent pas le combat : sans la table, la sélection ne
+   * propose que les espèces par défaut et tout le reste fonctionne. Les
+   * attendre ferait dépendre un mode entier d'une requête accessoire.
+   */
+  const { parEspece: formesParEspece } = useBattleForms(byId)
 
   /*
    * Les deux équipes sont stockées séparément, et `equipes` n'existe que
@@ -81,10 +88,10 @@ export function BattlePage() {
    * ferait démarrer la construction du combat dès le premier joueur, avec
    * une équipe adverse vide.
    */
-  const [equipe1, setEquipe1] = useState<number[] | null>(null)
-  const [equipe2, setEquipe2] = useState<number[] | null>(null)
+  const [equipe1, setEquipe1] = useState<Choix[] | null>(null)
+  const [equipe2, setEquipe2] = useState<Choix[] | null>(null)
   const equipes = useMemo(
-    () => (equipe1 && equipe2 ? ([equipe1, equipe2] as [number[], number[]]) : null),
+    () => (equipe1 && equipe2 ? ([equipe1, equipe2] as [Choix[], Choix[]]) : null),
     [equipe1, equipe2],
   )
 
@@ -100,27 +107,54 @@ export function BattlePage() {
   const [message, setMessage] = useState<string | null>(null)
   const [impact, setImpact] = useState<Side | null>(null)
 
-  const idsEquipes = useMemo(
-    () => (equipes ? [...new Set([...equipes[0], ...equipes[1]])] : []),
-    [equipes],
-  )
+  /*
+   * On demande les capacités de l'espèce **et** de la forme retenue. Les
+   * deux sont nécessaires : le vivier propre à une forme est souvent
+   * incomplet — 50 des 219 formes jouables n'en ont aucun dans l'API, dont
+   * toutes les Méga de Legends Z-A — mais 32 sont les seules à porter une
+   * attaque de leur nouveau type, comme les formes d'Alola.
+   *
+   * Le coût est nul : la requête prend déjà une liste, et douze
+   * identifiants tiennent dans le même aller-retour que six.
+   */
+  const idsEquipes = useMemo(() => {
+    if (!equipes) return []
+    const ids = [...equipes[0], ...equipes[1]].flatMap((choix) =>
+      choix.formId ? [choix.speciesId, choix.formId] : [choix.speciesId],
+    )
+    return [...new Set(ids)]
+  }, [equipes])
+
   const { movesets, isPending: movesetsPending, isError: movesetsError } = useMovesets(idsEquipes)
 
   /* --- Construction du combat une fois les capacités reçues --------- */
   useEffect(() => {
     if (etat || !equipes || !movesets || !movesById || !byId) return
 
-    const monter = (ids: number[]) =>
-      ids
-        .map((id) => byId.get(id))
-        .filter((summary) => summary !== undefined)
-        .map((summary) => creerBattler(summary, movesets[summary.id] ?? [], movesById))
+    const monter = (choisis: Choix[]) =>
+      choisis.flatMap((choix) => {
+        const summary = byId.get(choix.speciesId)
+        if (!summary) return []
+
+        const forme = choix.formId
+          ? (formesParEspece?.get(choix.speciesId)?.find((f) => f.id === choix.formId) ?? null)
+          : null
+
+        const apprises = [
+          ...new Set([
+            ...(movesets[choix.speciesId] ?? []),
+            ...(choix.formId ? (movesets[choix.formId] ?? []) : []),
+          ]),
+        ]
+
+        return [creerBattler(summary, forme, choix.shiny, apprises, movesById)]
+      })
 
     const combat = creerCombat([monter(equipes[0]), monter(equipes[1])], graineAleatoire())
     setEtat(combat)
     setAffiche(combat)
     setPassage({ vers: 1, ecran: { kind: 'choix', side: 0 }, detail: 'Le combat commence !' })
-  }, [etat, equipes, movesets, movesById, byId])
+  }, [etat, equipes, movesets, movesById, byId, formesParEspece])
 
   /* --- Enchaînement après un tour ou un remplacement ---------------- */
   const enchainer = useCallback((courant: BattleState) => {
@@ -170,16 +204,16 @@ export function BattlePage() {
   }, [ecran, curseur, evenements, etat, enchainer])
 
   /* --- Actions ------------------------------------------------------- */
-  const choisirEquipe = (ids: number[]) => {
+  const choisirEquipe = (choisis: Choix[]) => {
     if (ecran.kind !== 'equipe') return
 
     if (ecran.joueur === 1) {
-      setEquipe1(ids)
+      setEquipe1(choisis)
       setPassage({ vers: 2, ecran: { kind: 'equipe', joueur: 2 }, detail: 'Compose ton équipe' })
     } else {
       // Les capacités des six Pokémon partent alors en une seule requête,
       // et l'effet de construction enchaîne sur l'écran de passage.
-      setEquipe2(ids)
+      setEquipe2(choisis)
     }
   }
 
@@ -281,6 +315,7 @@ export function BattlePage() {
             key={ecran.joueur}
             pokemon={pokemon}
             player={ecran.joueur}
+            formes={formesParEspece}
             onDone={choisirEquipe}
           />
         )}
@@ -421,7 +456,7 @@ function Combat({
            * `choix` et rien ne provoque le démontage.
            */
           <ActionPanel
-            key={`${ecran.side}-${actif(etat, ecran.side).id}`}
+            key={`${ecran.side}-${actif(etat, ecran.side).spriteId}`}
             battler={actif(etat, ecran.side)}
             adversaire={actif(etat, (1 - ecran.side) as Side)}
             chart={chart}
