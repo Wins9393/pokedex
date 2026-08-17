@@ -11,10 +11,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { normalizeMoves, normalizeMovesets } from '@/api/normalize'
-import { MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
+import { normalizeBattleForms, normalizeIndex, normalizeMoves, normalizeMovesets } from '@/api/normalize'
+import { FORMS_QUERY, INDEX_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
 import { buildTypeChart } from '@/lib/type-chart'
 import { statsDeCombat } from '@/lib/battle/stats'
+import { formesJouables } from '@/lib/battle/forms'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
 import { resoudreFrappe } from '@/lib/battle/damage'
 import { creerBattler, creerCombat, resoudreTour, actif } from '@/lib/battle/engine'
@@ -38,6 +39,16 @@ const gql = async (query: string, variables?: Record<string, unknown>) => {
 
 const IDS = [6, 3, 25, 111, 143, 65]
 
+/*
+ * Sujets du contrôle des formes : une Méga classique, une forme régionale
+ * qui gagne un type absent de son espèce, une Méga récente sans aucune
+ * capacité dans l'API — et leurs espèces de base, dont il faut le vivier.
+ */
+const MEWTWO_MEGA_X = 10043
+const OSSATUEUR_ALOLA = 10115
+const MELODELFE_MEGA = 10278
+const IDS_FORMES = [150, MEWTWO_MEGA_X, 105, OSSATUEUR_ALOLA, 36, MELODELFE_MEGA]
+
 const SUJETS_QUERY = `
   query Sujets($ids: [Int!]!) {
     pokemon(where: { id: { _in: $ids } }, order_by: { id: asc }) {
@@ -53,12 +64,15 @@ const SUJETS_QUERY = `
 
 async function donnees() {
   if (existsSync(CACHE)) return JSON.parse(readFileSync(CACHE, 'utf8'))
-  const [sujets, moves, movesets] = await Promise.all([
+  const [sujets, moves, movesets, formes, index, movesetsFormes] = await Promise.all([
     gql(SUJETS_QUERY, { ids: IDS }),
     gql(MOVES_QUERY),
     gql(MOVESETS_QUERY, { ids: IDS }),
+    gql(FORMS_QUERY),
+    gql(INDEX_QUERY),
+    gql(MOVESETS_QUERY, { ids: IDS_FORMES }),
   ])
-  const payload = { sujets, moves, movesets }
+  const payload = { sujets, moves, movesets, formes, index, movesetsFormes }
   mkdirSync(dirname(CACHE), { recursive: true })
   writeFileSync(CACHE, JSON.stringify(payload))
   return payload
@@ -109,7 +123,7 @@ const summary = (s: Sujet) => ({
 }) as never
 
 const sujet = (id: number) => summary(brut.sujets.pokemon.find((p: Sujet) => p.id === id))
-const battler = (id: number) => creerBattler(sujet(id), movesets[id] ?? [], parId)
+const battler = (id: number) => creerBattler(sujet(id), null, false, movesets[id] ?? [], parId)
 
 console.log(`\nDonnées : ${moves.length} attaques, ${Object.keys(movesets).length} listes\n`)
 
@@ -252,7 +266,123 @@ console.log('\nReproductibilité à graine égale')
   ok('graine différente → déroulé différent', jouer(1234) !== jouer(9876))
 }
 
-/* 7. Combat complet -------------------------------------------------- */
+/* 7. Formes alternatives --------------------------------------------- */
+console.log('\nFormes alternatives')
+{
+  const toutes = normalizeBattleForms(brut.formes)
+  const dex = normalizeIndex(brut.index).pokemon
+  const parEspeceDex = new Map(dex.map((p) => [p.id, p]))
+  const jouables = formesJouables(toutes, parEspeceDex)
+  const aplat = [...jouables.values()].flat()
+
+  ok('la table brute compte 326 formes', toutes.length === 326, `${toutes.length}`)
+  ok(
+    '219 formes jouables sur 179 espèces',
+    aplat.length === 219 && jouables.size === 179,
+    `${aplat.length} formes, ${jouables.size} espèces`,
+  )
+  ok(
+    'les Gigamax sont écartées (mêmes types et stats que leur espèce)',
+    aplat.filter((f) => f.name.includes('Gigamax')).length === 0,
+  )
+  ok(
+    'Éthernatos Infinimax est hors barème',
+    !aplat.some((f) => f.id === 10190),
+    'total 1125',
+  )
+  ok(
+    'aucun libellé en double',
+    new Set(aplat.map((f) => f.name)).size === aplat.length,
+    'les 7 noyaux de Minior sont réduits à un',
+  )
+
+  const forme = (id: number) => aplat.find((f) => f.id === id)!
+  const capacites = normalizeMovesets(brut.movesetsFormes)
+  const union = (espece: number, id: number) => [
+    ...new Set([...(capacites[espece] ?? []), ...(capacites[id] ?? [])]),
+  ]
+
+  /* Une forme change les statistiques, et rien d'autre dans le moteur. */
+  {
+    const mega = forme(MEWTWO_MEGA_X)
+    const s = statsDeCombat(mega.stats)
+    // Attaque = ⌊(2×190 + 31) × 50/100⌋ + 5 = ⌊205,5⌋ + 5 = 210
+    ok('Méga-Mewtwo X : 210 d’Attaque au niveau 50', s.attack === 210, `${s.attack}`)
+    ok('Méga-Mewtwo X est Psy/Combat', mega.types.join('/') === 'psychic/fighting')
+  }
+
+  /*
+   * Le point qui justifie l'union des viviers, dans les deux sens : une
+   * forme régionale porte des attaques que son espèce n'a pas, et une Méga
+   * récente n'en a aucune dans l'API.
+   */
+  {
+    const ossatueur = forme(OSSATUEUR_ALOLA)
+    const base = choisirAttaques(
+      ossatueur.types,
+      ossatueur.stats,
+      capacites[105] ?? [],
+      parId,
+    )
+    const unies = choisirAttaques(
+      ossatueur.types,
+      ossatueur.stats,
+      union(105, OSSATUEUR_ALOLA),
+      parId,
+    )
+
+    /*
+     * Ossatueur d'Alola est Feu/Spectre. Le Feu, son espèce l'apprend déjà
+     * par CT ; le Spectre, non — c'est la forme seule qui le porte, et
+     * c'est ce que l'union va chercher.
+     */
+    ok(
+      'le vivier d’Ossatueur seul ne donne aucune attaque Spectre',
+      !base.some((slot) => slot.move.type === 'ghost'),
+    )
+    ok(
+      'uni à celui de la forme d’Alola, il en donne une',
+      unies.some((slot) => slot.move.type === 'ghost'),
+      unies.map((slot) => slot.move.name).join(', '),
+    )
+  }
+
+  {
+    const melodelfe = forme(MELODELFE_MEGA)
+    const propre = capacites[MELODELFE_MEGA] ?? []
+    const attaques = choisirAttaques(
+      melodelfe.types,
+      melodelfe.stats,
+      union(36, MELODELFE_MEGA),
+      parId,
+    )
+
+    ok('Méga-Mélodelfe n’a aucune capacité propre', propre.length === 0)
+    ok(
+      'elle hérite malgré tout d’attaques réelles',
+      attaques.length === 4 && !attaques.some((slot) => slot.move.id === LUTTE.id),
+      attaques.map((slot) => slot.move.name).join(', '),
+    )
+  }
+
+  /* Le chromatique est purement visuel : le tour doit être identique. */
+  {
+    const espece = sujet(6)
+    const normal = creerBattler(espece, null, false, movesets[6] ?? [], parId)
+    const chromatique = creerBattler(espece, null, true, movesets[6] ?? [], parId)
+    const adversaire = () => battler(3)
+
+    const jouer = (mien: typeof normal) => {
+      const etat = creerCombat([[mien], [adversaire()]], 4242)
+      const r = resoudreTour(etat, [{ kind: 'move', slot: 0 }, { kind: 'move', slot: 0 }], chart)
+      return JSON.stringify(r.events)
+    }
+
+    ok('le chromatique ne change rien au déroulé', jouer(normal) === jouer(chromatique))
+  }
+}
+
+/* 8. Combat complet -------------------------------------------------- */
 console.log('\nCombat complet 3 contre 3')
 {
   let etat = creerCombat(
