@@ -311,6 +311,50 @@ export const MOVES_QUERY = /* GraphQL */ `
 `
 
 /**
+ * Les formes alternatives jouables : Méga, Primo, régionales, Motisma,
+ * Deoxys… — 326 entrées avec leurs types, statistiques et noms français,
+ * en une requête de 159 Ko (13 Ko compressés).
+ *
+ * On interroge `pokemon` et non `pokemonforms` : une forme n'est un choix
+ * de combat que si elle a ses propres statistiques, et seule la table
+ * `pokemon` en porte. Les déclinaisons purement décoratives (les casquettes
+ * de Pikachu, les motifs de Prismillon) n'ont pas de ligne ici, ou en ont
+ * une identique au défaut — c'est `formesJouables` qui les écarte, en
+ * comparant à l'espèce plutôt qu'en tenant une liste de noms.
+ *
+ * `pokemon_name` plutôt que `name` pour le libellé : `name` dit « Forme de
+ * Paldéa » pour les trois races de Tauros et « Forme 10 % » deux fois chez
+ * Zygarde, alors que `pokemon_name` distingue chaque entrée.
+ */
+export const FORMS_QUERY = /* GraphQL */ `
+  query BattleForms {
+    pokemon(where: { is_default: { _eq: false } }, order_by: { id: asc }) {
+      id
+      speciesId: pokemon_species_id
+      types: pokemontypes(order_by: { slot: asc }) {
+        type {
+          name
+        }
+      }
+      stats: pokemonstats(order_by: { stat_id: asc }) {
+        base_stat
+        stat {
+          name
+        }
+      }
+      form: pokemonforms(order_by: { form_order: asc }, limit: 1) {
+        form_name
+        is_mega
+        names: pokemonformnames(where: { language_id: { _eq: ${LANG_FR} } }) {
+          name
+          pokemon_name
+        }
+      }
+    }
+  }
+`
+
+/**
  * Les capacités apprises par un lot de Pokémon.
  *
  * `distinct_on: move_id` combiné à `version_group_id: desc` renvoie une

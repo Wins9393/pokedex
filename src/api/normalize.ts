@@ -5,6 +5,7 @@
 
 import type {
   Ability,
+  BattleForm,
   EfficacyRow,
   EvolutionNode,
   FlavorEntry,
@@ -328,6 +329,23 @@ const FORM_SHORT_LABELS: Record<string, string> = {
   starter: 'Partenaire',
 }
 
+/**
+ * Étiquette courte d'une forme, pour les sélecteurs et les badges. Les
+ * libellés maison priment sur ceux de l'API, qui sont des phrases (« Forme
+ * d'Alola ») là où il faut un mot.
+ */
+function shortFormLabel(
+  formSlug: string,
+  label: { name: string } | undefined,
+  fallbackSlug: string,
+) {
+  return (
+    FORM_SHORT_LABELS[formSlug] ??
+    label?.name?.replace(/^Forme\s+/i, '') ??
+    (formSlug ? prettifySlug(formSlug) : prettifySlug(fallbackSlug))
+  )
+}
+
 function normalizeForm(
   variant: RawDetailSpecies['variants'][number],
   speciesName: string,
@@ -342,9 +360,7 @@ function normalizeForm(
 
   const shortName = variant.is_default
     ? 'Normale'
-    : (FORM_SHORT_LABELS[formSlug] ??
-      label?.name?.replace(/^Forme\s+/i, '') ??
-      (formSlug ? prettifySlug(formSlug) : prettifySlug(variant.name)))
+    : shortFormLabel(formSlug, label, variant.name)
 
   const stats = toStats(variant.stats)
 
@@ -515,4 +531,48 @@ export function normalizeMovesets(raw: RawMovesetsResponse): Movesets {
     movesets[entry.id] = entry.moves.map((link) => link.move_id)
   }
   return movesets
+}
+
+type RawBattleForm = {
+  id: number
+  speciesId: number
+  types: RawTypeLink[]
+  stats: RawStatLink[]
+  form: {
+    form_name: string | null
+    is_mega: boolean
+    names: { name: string; pokemon_name: string }[]
+  }[]
+}
+
+export type RawFormsResponse = { pokemon: RawBattleForm[] }
+
+/**
+ * Traduit les formes brutes sans rien trier : le choix de ce qui est
+ * jouable est une règle de jeu, pas une règle de données, et vit dans
+ * `lib/battle/forms.ts`. Garder la table complète en cache permet aussi de
+ * faire évoluer cette règle sans re-télécharger quoi que ce soit.
+ */
+export function normalizeBattleForms(raw: RawFormsResponse): BattleForm[] {
+  const formes: BattleForm[] = []
+
+  for (const entry of raw.pokemon) {
+    const meta = entry.form[0]
+    const label = meta?.names[0]
+    const formSlug = meta?.form_name ?? ''
+    const stats = toStats(entry.stats)
+
+    formes.push({
+      id: entry.id,
+      speciesId: entry.speciesId,
+      name: label?.pokemon_name || label?.name || prettifySlug(formSlug),
+      shortName: shortFormLabel(formSlug, label, formSlug),
+      isMega: meta?.is_mega ?? false,
+      types: toTypes(entry.types),
+      stats,
+      statTotal: sumStats(stats),
+    })
+  }
+
+  return formes
 }

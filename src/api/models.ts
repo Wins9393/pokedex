@@ -145,8 +145,30 @@ export type Move = {
 }
 
 /**
- * Les attaques apprenables, par numéro de Pokédex. Ne contient que des
- * identifiants : les attaques elles-mêmes vivent dans la table commune,
+ * Les attaques apprenables, par identifiant de Pokémon — numéro de Pokédex
+ * pour une espèce, identifiant de forme au-delà de 10000. Ne contient que
+ * des identifiants : les attaques elles-mêmes vivent dans la table commune,
  * chargée une fois pour tout le jeu.
  */
 export type Movesets = Record<number, number[]>
+
+/**
+ * Une forme alternative utilisable en combat. Volontairement plus légère
+ * que `PokemonForm`, qui sert la fiche détail : le combat n'a besoin que de
+ * ce qui change vraiment d'une forme à l'autre — les types, les statistiques
+ * et l'identifiant qui adresse les sprites.
+ */
+export type BattleForm = {
+  /** Identifiant du Pokémon-forme, ex. 10043. Adresse les sprites et les capacités. */
+  id: number
+  /** Numéro de Pokédex national de l'espèce, ex. 150. */
+  speciesId: number
+  /** Libellé complet et unique, ex. `Méga-Mewtwo X`. */
+  name: string
+  /** Étiquette courte pour le badge d'emplacement, ex. `Méga X`. */
+  shortName: string
+  isMega: boolean
+  types: TypeName[]
+  stats: Record<StatName, number>
+  statTotal: number
+}
