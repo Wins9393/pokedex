@@ -5,7 +5,14 @@ import { normalizeMoves, normalizeMovesets } from '@/api/normalize'
 import type { RawMovesResponse, RawMovesetsResponse } from '@/api/normalize'
 import type { Move } from '@/api/models'
 
-export const MOVES_QUERY_KEY = ['pokedex', 'moves'] as const
+/**
+ * Le `v2` date de l'arrivée des archétypes de geste : les entrées déjà
+ * persistées n'ont pas ce champ, et une attaque sans geste faisait tomber
+ * l'arène. Une clé versionnée plutôt que le `buster` global de `main.tsx`,
+ * qui aurait jeté du même coup les ~6 Mo de fiches téléchargées pour le
+ * hors-ligne — ici seules les 60 Ko du vivier sont à reprendre.
+ */
+export const MOVES_QUERY_KEY = ['pokedex', 'moves', 'v2'] as const
 
 /**
  * Même mémorisation que l'index : la table par identifiant est identique
@@ -24,7 +31,7 @@ function indexMoves(moves: Move[]): Map<number, Move> {
 
 /**
  * Le vivier d'attaques : 394 attaques offensives, chargées une seule fois
- * pour tout le mode combat (60 Ko, 6 Ko compressés).
+ * pour tout le mode combat (77 Ko, 7 Ko compressés).
  */
 export function useMoves(enabled = true) {
   const query = useQuery({

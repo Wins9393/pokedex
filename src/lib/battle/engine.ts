@@ -167,7 +167,14 @@ export function resoudreTour(
     const move = emplacement && emplacement.pp > 0 ? emplacement.move : LUTTE
     if (emplacement && emplacement.pp > 0) emplacement.pp -= 1
 
-    events.push({ kind: 'move', side, user: attaquant.name, move: move.name, type: move.type })
+    events.push({
+      kind: 'move',
+      side,
+      user: attaquant.name,
+      move: move.name,
+      type: move.type,
+      archetype: move.archetype,
+    })
 
     const frappe = resoudreFrappe(attaquant, defenseur, move, chart, rng)
 

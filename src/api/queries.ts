@@ -5,6 +5,8 @@
  * 127 espèces récentes dont les descriptions ne sont pas traduites).
  */
 
+import { DRAPEAUX_GESTE } from '@/lib/battle/effects'
+
 export const LANG_FR = 5
 export const LANG_EN = 9
 
@@ -261,7 +263,7 @@ const EFFETS_DEUX_TOURS = [40, 152, 156, 256, 257, 264, 273, 312]
 
 /**
  * Le vivier d'attaques du mode combat — 394 attaques, toutes nommées en
- * français, en une requête de 60 Ko (6 Ko compressés).
+ * français, en une requête de 77 Ko (7 Ko compressés).
  *
  * Les exclusions sont pilotées par les données plutôt que par une liste de
  * noms à maintenir, et visent uniquement les attaques qu'ignorer leur effet
@@ -302,6 +304,13 @@ export const MOVES_QUERY = /* GraphQL */ `
       }
       movedamageclass {
         name
+      }
+      # Les six drapeaux qui décrivent le geste, et eux seuls : ils pilotent
+      # l'animation d'attaque. Voir DRAPEAUX_GESTE.
+      moveattributemaps(
+        where: { move_attribute_id: { _in: [${Object.values(DRAPEAUX_GESTE).join(', ')}] } }
+      ) {
+        move_attribute_id
       }
       movenames(where: { language_id: { _eq: ${LANG_FR} } }) {
         name

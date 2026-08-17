@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { Link } from 'react-router'
 import { ActionPanel, ListeRemplacants } from '@/components/battle/ActionPanel'
+import { DUREE_EFFET } from '@/components/battle/AttackEffect'
+import type { Effet } from '@/components/battle/AttackEffect'
 import { BattleArena } from '@/components/battle/BattleArena'
 import { DUREE_JAUGE } from '@/components/battle/HealthBar'
 import { PassScreen } from '@/components/battle/PassScreen'
@@ -242,6 +244,30 @@ export function BattlePage() {
   const etapeCourante = ecran.kind === 'replay' ? evenements[curseur] : undefined
   const etapeMuette = etapeCourante !== undefined && estMuet(etapeCourante)
 
+  /*
+   * Le geste se joue sur l'étape qui **suit** l'annonce de l'attaque : la
+   * tape donnée sur « Mewtwo utilise Dévorêve ! » déclenche le coup, et
+   * cette étape-là en est le paiement — les dégâts le plus souvent, mais
+   * aussi l'esquive et l'immunité, où le coup part sans rien toucher.
+   */
+  const precedente = curseur > 0 ? evenements[curseur - 1] : undefined
+  const annonce = ecran.kind === 'replay' && precedente?.kind === 'move' ? precedente : undefined
+  const porte = etapeCourante?.kind === 'damage'
+  const manque = etapeCourante?.kind === 'miss' || etapeCourante?.kind === 'immune'
+
+  const effet: (Omit<Effet, 'depuis'> & { side: Side }) | null =
+    annonce && (porte || manque)
+      ? {
+          cle: curseur,
+          archetype: annonce.archetype,
+          type: annonce.type,
+          side: annonce.side,
+          rate: !porte,
+        }
+      : null
+
+  const avecGeste = effet !== null
+
   useEffect(() => {
     if (!etapeMuette) return
 
@@ -252,10 +278,11 @@ export function BattlePage() {
      * bloquer le combat. C'est la différence avec un rejeu suspendu à la fin
      * d'une animation, qui n'a lui aucune porte de sortie.
      */
-    const delai = reduit ? PLANCHER_MUET : DUREE_JAUGE * 1000 + MARGE_JAUGE
+    const trajet = avecGeste ? DUREE_EFFET * 1000 : 0
+    const delai = reduit ? PLANCHER_MUET : trajet + DUREE_JAUGE * 1000 + MARGE_JAUGE
     const minuteur = window.setTimeout(avancerRecit, delai)
     return () => window.clearTimeout(minuteur)
-  }, [etapeMuette, curseur, reduit, avancerRecit])
+  }, [etapeMuette, curseur, reduit, avecGeste, avancerRecit])
 
   /* --- Actions ------------------------------------------------------- */
   const choisirEquipe = (choisis: Choix[]) => {
@@ -394,6 +421,7 @@ export function BattlePage() {
               chart={chart}
               message={message}
               impact={impact}
+              effet={effet}
               curseur={curseur}
               attendTape={ecran.kind === 'replay' && !etapeMuette}
               onAvancer={avancerRecit}
@@ -446,6 +474,8 @@ type CombatProps = {
   chart: TypeChart | undefined
   message: string | null
   impact: Side | null
+  /** Le geste d'attaque à jouer, `null` hors du moment de la frappe. */
+  effet: (Omit<Effet, 'depuis'> & { side: Side }) | null
   /** Étape à l'écran : réarme le verrou à chaque avancée. */
   curseur: number
   /**
@@ -466,6 +496,7 @@ function Combat({
   chart,
   message,
   impact,
+  effet,
   curseur,
   attendTape,
   onAvancer,
@@ -501,7 +532,13 @@ function Combat({
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
       <EnTete tour={affiche.turn} />
 
-      <BattleArena joueur={vue(perspective)} adversaire={vue(adverse)} impact={impact} />
+      <BattleArena
+        joueur={vue(perspective)}
+        adversaire={vue(adverse)}
+        perspective={perspective}
+        impact={impact}
+        effet={effet}
+      />
 
       {/*
         Pas d'`AnimatePresence mode="wait"` ici : il ne monte la nouvelle

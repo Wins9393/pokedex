@@ -1,4 +1,5 @@
 import type { Move } from '@/api/models'
+import type { Archetype } from './effects'
 import type { StatName, TypeName } from '@/lib/pokemon-types'
 
 /**
@@ -91,7 +92,10 @@ export type BattleEvent =
   // `toIndex` évite à l'interface de retrouver le remplaçant par son nom,
   // ce qui serait ambigu si une équipe alignait deux fois la même espèce.
   | { kind: 'switch'; side: Side; from: string; to: string; toIndex: number }
-  | { kind: 'move'; side: Side; user: string; move: string; type: TypeName }
+  // `archetype` voyage avec l'annonce plutôt que d'être retrouvé par le nom
+  // de l'attaque : c'est l'interface qui joue le geste, à l'étape suivante,
+  // et elle n'a alors plus que le récit sous la main.
+  | { kind: 'move'; side: Side; user: string; move: string; type: TypeName; archetype: Archetype }
   | { kind: 'miss'; side: Side; user: string }
   | { kind: 'immune'; side: Side; target: string }
   | { kind: 'critical' }

@@ -1,3 +1,4 @@
+import type { Archetype } from '@/lib/battle/effects'
 import type { StatName, TypeName } from '@/lib/pokemon-types'
 
 /** Une entrée de la grille. Volontairement plate et sérialisable : c'est ce qui est mis en cache. */
@@ -142,6 +143,8 @@ export type Move = {
   /** Positive = frappe avant les attaques ordinaires, comme Vive-Attaque (+1). */
   priority: number
   category: MoveCategory
+  /** Le geste à jouer à l'écran, déduit des drapeaux de l'API. */
+  archetype: Archetype
 }
 
 /**

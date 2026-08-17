@@ -129,6 +129,49 @@ Le chromatique, lui, ne coûte **rien du tout** : là où le sprite normal exist
 existe aussi — vérifié sans exception sur les 1025 espèces (1004 sprites Showdown de dos, 1004 en
 chromatique) comme sur les formes (264 et 264). C'est un booléen et un segment d'URL.
 
+#### Animer les coups sans un seul visuel
+
+**PokéAPI n'expose aucun sprite d'attaque**, et ce n'est pas un oubli : depuis la 6G les animations
+des jeux sont des scripts et des effets 3D, il n'y a rien à extraire. Vérifié aux trois endroits où
+la question pouvait se poser — 54 champs sur `move` en GraphQL, aucun ; 24 clés côté REST, pas de
+`sprites` ; et le dépôt `PokeAPI/sprites` ne contient que `badges`, `items`, `pokemon`, `types`.
+
+Ce que la base donne en revanche, c'est la **nature physique du coup**, par des drapeaux prévus pour
+de tout autres règles : `contact` sert à Peau Dure, `ballistics` à Pare-Balles, `sound` à Anti-Bruit.
+Détournés, ils disent exactement quoi dessiner. Le classement est donc piloté par les données, sans
+liste de noms — comme le filtre du vivier et celui des formes :
+
+| Geste | Règle | Volume |
+| --- | --- | --- |
+| Mêlée | `contact` | 150 · 38 % |
+| Faisceau | spéciale, sans contact | 125 · 32 % |
+| Projectile | `ballistics`, ou physique à distance | 72 · 18 % |
+| Onde | `sound` ou `pulse` | 20 · 5 % |
+| Poing | `punch` | 17 · 4 % |
+| Morsure | `bite` | 10 · 3 % |
+
+Six drapeaux demandés sur les 21 — les quinze autres décrivent des interactions de règles et ne
+disent rien du geste. La requête du vivier passe de 60 à **77 Ko** (7 Ko compressés).
+
+Tout est ensuite dessiné **en CSS, sans un octet d'image** : rien de plus à mettre en cache pour le
+hors-ligne, et les 394 attaques sont couvertes — y compris celles que personne n'a jamais illustrées.
+Deux principes ont fait le rendu :
+
+- **Un effet se lit par contraste avec le fond, pas par sa clarté.** Blanchir les cœurs donne une
+  belle incandescence sur le thème sombre et fait disparaître l'attaque sur le clair. On pousse donc
+  la teinte du type vers `--ink`, la couleur du texte — donc par construction celle qui tranche sur
+  le fond du thème en cours. Une seule règle, les deux thèmes.
+- **Le désordre fait l'impact.** Six éclats répartis tous les 60° et de même longueur dessinent un
+  flocon, que l'œil lit comme une étoile décorative. Des angles et des longueurs irréguliers — mais
+  *fixes*, un tirage au sort ferait scintiller la scène sans raison — donnent une projection de
+  matière.
+
+Le geste se joue sur l'étape qui **suit** l'annonce : la tape donnée sur « Mewtwo utilise Dévorêve ! »
+lance le coup, et l'étape muette qui la suit en est le paiement. Le trajet dure `DUREE_EFFET`, et la
+jauge, la secousse et l'enchaînement automatique s'y accrochent tous — sinon les PV tomberaient avant
+que le coup ait touché, la faute même que l'ordre des événements corrige. **Le nombre de tapes ne
+bouge pas** : on habille une étape existante, on n'en crée aucune.
+
 ### Pièges rencontrés
 
 Quelques points qui ne se devinent pas et sont documentés dans le code :
@@ -342,14 +385,37 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   attributs casse la compilation, et Vite se contente alors de ne pas recharger le module : la page
   continue de tourner sur l'ancienne version, ce qui donne toutes les apparences d'une modification
   sans effet.
+- **Un pourcentage ne mesure pas la même longueur selon l'axe.** Un trait tracé de l'attaquant à sa
+  cible en pourcentages de l'arène rate sa cible dans un cadre 4/3, l'horizontal se rapportant à la
+  largeur et le vertical à la hauteur. L'effet travaille donc en pixels réels, mesurés au
+  `ResizeObserver`, et change de repère : dans `Axe`, `x` court le long du trajet et `y` s'en écarte
+  — la cloche d'un projectile et l'épaisseur d'un rayon s'écrivent alors sans trigonométrie.
+- **La rotation vit en CSS statique, l'animation dans `motion`.** Les deux écrivent dans
+  `transform` : mettre l'angle dans `style` et animer `scaleX` sur le même élément fait perdre l'un
+  ou l'autre. Un conteneur porte l'angle, son enfant l'animation.
+- **Un champ ajouté à un modèle périme le cache persisté.** Les attaques déjà en IndexedDB n'avaient
+  pas d'archétype, et l'arène tombait sur `Element type is invalid` au premier coup — une donnée
+  d'hier suffit à casser le code d'aujourd'hui. La clé de requête est donc versionnée
+  (`['pokedex','moves','v2']`) plutôt que le `buster` global de `main.tsx`, qui aurait jeté du même
+  coup les ~6 Mo de fiches téléchargées pour le hors-ligne. Et l'effet ne dessine plus rien quand il
+  ne reconnaît pas un geste : **une décoration ne fait pas tomber une partie en cours**.
+- **Ce qui est animé doit l'être jusqu'au bout, chiffres compris.** La jauge attend désormais que le
+  coup ait touché, mais le nombre de PV et la couleur du palier étaient déduits de la valeur
+  d'arrivée : ils annonçaient les dégâts pendant que le projectile était encore en vol. Les PV sont
+  donc animés comme une **valeur**, dont la barre, le chiffre et la teinte sont tous dérivés.
+- **Le volet d'aperçu intégré ne rend pas les animations.** Il tourne en
+  `document.visibilityState === "hidden"`, où `requestAnimationFrame` est suspendu : toutes les
+  captures d'un même geste sortent identiques, figées sur la même image. Et `motion` capture
+  `requestAnimationFrame` au chargement de son module — le remplacer depuis la console ne l'atteint
+  plus. La composition et les couleurs se vérifient là ; la temporalité, non.
 
 ### Structure
 
 ```
 src/
 ├── api/        client GraphQL, requêtes, normalisation des réponses
-├── lib/        recherche, filtres, table des types, sprites, formatage
-│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, formes, tours
+├── lib/        recherche, filtres, table des types, sprites, formatage, géométrie de l'arène
+│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, formes, gestes, tours
 ├── hooks/      index, fiche, attaques, formes, filtres (URL), favoris, thème, cri, inclinaison 3D
 ├── components/ layout · grid · filters · detail · battle · ui
 └── pages/      PokedexPage · BattlePage

@@ -16,6 +16,7 @@ import type {
   PokemonForm,
   PokemonSummary,
 } from './models'
+import { archetypeDe } from '@/lib/battle/effects'
 import { STAT_ORDER, TYPE_ORDER } from '@/lib/pokemon-types'
 import type { StatName, TypeName } from '@/lib/pokemon-types'
 import { capitalize, cleanFlavorText, formatEggGroup, normalizeText, prettifySlug } from '@/lib/format'
@@ -484,6 +485,7 @@ type RawMove = {
   priority: number
   type: RawName
   movedamageclass: RawName
+  moveattributemaps: { move_attribute_id: number }[]
   movenames: RawName[]
 }
 
@@ -519,6 +521,10 @@ export function normalizeMoves(raw: RawMovesResponse): Move[] {
       pp: move.pp,
       priority: move.priority,
       category,
+      archetype: archetypeDe(
+        new Set(move.moveattributemaps.map((lien) => lien.move_attribute_id)),
+        category,
+      ),
     })
   }
 

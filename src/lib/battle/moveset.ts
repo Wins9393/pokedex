@@ -21,6 +21,8 @@ export const LUTTE: Move = {
   pp: 10,
   priority: 0,
   category: 'physical',
+  // Lutte est un placage : `contact` dans l'API, donc une mêlée ici aussi.
+  archetype: 'melee',
 }
 
 /**

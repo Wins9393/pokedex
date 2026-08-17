@@ -495,7 +495,86 @@ console.log('\nDisponibilité des sprites de combat')
   )
 }
 
-/* 9. Rythme du récit --------------------------------------------------- */
+/* 9. Gestes d'attaque --------------------------------------------------- */
+console.log('\nGestes d’attaque')
+{
+  const parArchetype = new Map<string, number>()
+  for (const move of moves) {
+    parArchetype.set(move.archetype, (parArchetype.get(move.archetype) ?? 0) + 1)
+  }
+
+  // Sans les drapeaux, tout retomberait sur la classe de dégâts : la moitié
+  // des attaques se joueraient en faisceau et l'autre en projectile.
+  ok(
+    'les six gestes sont tous représentés',
+    parArchetype.size === 6,
+    [...parArchetype].map(([nom, n]) => `${nom} ${n}`).join(', '),
+  )
+
+  const melee = parArchetype.get('melee') ?? 0
+  ok(
+    'aucun geste n’avale le vivier',
+    melee / moves.length < 0.5,
+    `le plus courant est la mêlée, ${Math.round((melee / moves.length) * 100)} % des ${moves.length} attaques`,
+  )
+
+  /*
+   * Le classement doit rester déductible des drapeaux de l'API, sans quoi
+   * il faudrait maintenir une liste de noms — exactement ce que le reste du
+   * vivier évite. On revérifie donc la règle sur les données brutes.
+   */
+  type MoveBrut = { id: number; moveattributemaps: { move_attribute_id: number }[] }
+  const CONTACT = 1
+  const SPECIFIQUES = [8, 9, 16, 17] // poing, son, morsure, pulsation
+  let contactMalClasse = 0
+  for (const brutMove of brut.moves.move as MoveBrut[]) {
+    const drapeaux = new Set(brutMove.moveattributemaps.map((l) => l.move_attribute_id))
+    if (!drapeaux.has(CONTACT) || SPECIFIQUES.some((d) => drapeaux.has(d))) continue
+    if (parId.get(brutMove.id)?.archetype !== 'melee') contactMalClasse += 1
+  }
+  ok(
+    'toute attaque « contact » sans geste plus précis est une mêlée',
+    contactMalClasse === 0,
+    'le classement reste piloté par les drapeaux, pas par une liste de noms',
+  )
+
+  const geste = (nom: string) => moves.find((m) => m.name === nom)?.archetype
+  const attendus: [string, string][] = [
+    ['Déflagration', 'faisceau'],
+    ['Exploforce', 'projectile'],
+    ['Colère', 'melee'],
+    ['Mâchouille', 'morsure'],
+    ['Poing Éclair', 'poing'],
+    ['Vibrobscur', 'onde'],
+  ]
+  const faux = attendus.filter(([nom, attendu]) => geste(nom) !== attendu)
+  ok(
+    'les cas d’école tombent juste',
+    faux.length === 0,
+    faux.length === 0
+      ? attendus.map(([nom, a]) => `${nom} → ${a}`).join(', ')
+      : faux.map(([nom, a]) => `${nom} attendu ${a}, obtenu ${geste(nom)}`).join(' ; '),
+  )
+
+  // L'interface joue le geste à l'étape qui suit l'annonce : si celle-ci ne
+  // le portait pas, elle n'aurait plus aucun moyen de le retrouver.
+  const essai = resoudreTour(
+    creerCombat([[battler(6)], [battler(3)]], 77),
+    [
+      { kind: 'move', slot: 0 },
+      { kind: 'move', slot: 0 },
+    ],
+    chart,
+  )
+  const annonces = essai.events.filter((e) => e.kind === 'move')
+  ok(
+    'chaque annonce d’attaque porte son geste',
+    annonces.length > 0 && annonces.every((e) => e.kind === 'move' && e.archetype !== undefined),
+    `${annonces.length} annonces dans le tour d’essai`,
+  )
+}
+
+/* 10. Rythme du récit -------------------------------------------------- */
 console.log('\nRythme du récit d’un tour')
 {
   const equipes = (): [ReturnType<typeof battler>[], ReturnType<typeof battler>[]] => [
@@ -598,7 +677,7 @@ console.log('\nRythme du récit d’un tour')
   )
 }
 
-/* 10. Combat complet -------------------------------------------------- */
+/* 11. Combat complet -------------------------------------------------- */
 console.log('\nCombat complet 3 contre 3')
 {
   let etat = creerCombat(
