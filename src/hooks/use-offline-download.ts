@@ -2,10 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { gql } from '@/api/client'
-import { DETAIL_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
-import { normalizeDetails, normalizeMoves, normalizeMovesets } from '@/api/normalize'
-import type { RawDetailResponse, RawMovesResponse, RawMovesetsResponse } from '@/api/normalize'
+import { DETAIL_QUERY, FORMS_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
+import {
+  normalizeBattleForms,
+  normalizeDetails,
+  normalizeMoves,
+  normalizeMovesets,
+} from '@/api/normalize'
+import type {
+  RawDetailResponse,
+  RawFormsResponse,
+  RawMovesResponse,
+  RawMovesetsResponse,
+} from '@/api/normalize'
+import type { BattleForm, PokedexIndexData } from '@/api/models'
+import { FORMS_QUERY_KEY } from '@/hooks/use-forms'
 import { MOVES_QUERY_KEY, movesetsKey } from '@/hooks/use-moves'
+import { INDEX_QUERY_KEY } from '@/hooks/use-pokedex'
+import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
 import { artworkUrl, showdownUrl } from '@/lib/sprites'
 
 /** Nom du cache déclaré dans la règle Workbox de `vite.config.ts`. */
@@ -17,9 +31,10 @@ const CACHE_SPRITES = 'pokemon-sprites'
  *
  * La parade n'est pas de ralentir mais de **demander moins souvent** : tout
  * ce qui vient de l'API part par lots. Le dex entier tient en 52 requêtes de
- * fiches, 18 de capacités et 1 de table d'attaques — 71 en tout, là où la
- * version fiche par fiche en émettait plus d'un millier et se faisait couper
- * autour de la deux centième.
+ * fiches, 22 de capacités — espèces et formes confondues —, 1 de table
+ * d'attaques et 1 de table des formes : 76 en tout, là où la version fiche
+ * par fiche en émettait plus d'un millier et se faisait couper autour de la
+ * deux centième.
  */
 const TAILLE_LOT_FICHES = 20
 const TAILLE_LOT_CAPACITES = 60
@@ -96,6 +111,19 @@ async function urlsEnCache(): Promise<Set<string>> {
 }
 
 /**
+ * Les identifiants des formes jouables, lus dans le cache. Ils n'existent
+ * qu'une fois la table des formes récupérée — d'où le `null`, qui signale
+ * « on ne sait pas encore » et non « il n'y en a pas ».
+ */
+function idsFormesEnCache(client: QueryClient): number[] | null {
+  const formes = client.getQueryData<BattleForm[]>([...FORMS_QUERY_KEY])
+  const index = client.getQueryData<PokedexIndexData>([...INDEX_QUERY_KEY])
+  if (!formes || !index) return null
+
+  return idsDesFormes(formesJouables(formes, new Map(index.pokemon.map((p) => [p.id, p]))))
+}
+
+/**
  * L'état est *mesuré*, jamais mémorisé. Un drapeau « déjà téléchargé »
  * mentirait dès que le navigateur purge le stockage sous pression disque,
  * ce qu'il fait sans prévenir.
@@ -108,19 +136,35 @@ async function mesurer(client: QueryClient, ids: number[]) {
 
   const presentes = await urlsEnCache()
   /*
-   * On ne compte que les illustrations officielles : les 1025 espèces en ont
-   * une, alors que quelques Pokémon récents n'ont pas de sprite animé.
-   * Compter les deux rendrait le total inatteignable.
+   * On ne compte que les illustrations officielles des espèces : les 1025
+   * en ont une, alors que quelques Pokémon récents n'ont pas de sprite
+   * animé — et que sur les 219 formes jouables, une n'a aucune
+   * illustration et 41 pas de sprite animé. Compter ces images-là rendrait
+   * le total définitivement inatteignable, donc elles se téléchargent sans
+   * conditionner l'état « complet ».
    */
   const images = ids.filter((id) => presentes.has(artworkUrl(id))).length
 
-  // Données du mode combat : la table des attaques, puis les capacités par lots.
-  const lots = lotsDeCapacites(ids)
+  // Données du mode combat : table des attaques, table des formes, puis les
+  // capacités par lots — celles des espèces comme celles des formes.
+  const idsFormes = idsFormesEnCache(client)
+  const lots = [
+    ...lotsDeCapacites(ids),
+    ...(idsFormes ? lotsDeCapacites(idsFormes) : []),
+  ]
   const combat =
     (enCache(client, MOVES_QUERY_KEY) ? 1 : 0) +
+    (enCache(client, FORMS_QUERY_KEY) ? 1 : 0) +
     lots.filter((lot) => enCache(client, movesetsKey(lot))).length
 
-  return { fiches, images, combat, combatRequis: lots.length + 1 }
+  /*
+   * Sans la table des formes, on ignore combien de lots de capacités il
+   * reste : le compte requis est délibérément inatteignable pour que l'état
+   * ne bascule pas à « complet » sur une ignorance.
+   */
+  const combatRequis = idsFormes ? lots.length + 2 : Number.POSITIVE_INFINITY
+
+  return { fiches, images, combat, combatRequis }
 }
 
 /**
@@ -233,12 +277,44 @@ export function useOfflineDownload(ids: number[]) {
      * déjà en cache paierait la pause de cadence pour rien : une reprise
      * après interruption repartirait au rythme d'un téléchargement complet.
      */
+    /*
+     * La table des formes est récupérée **avant** la planification, et non
+     * comptée parmi les tâches : c'est elle qui dit quelles capacités et
+     * quelles images restent à chercher. La traiter comme une tâche
+     * ordinaire obligerait à publier un total qui changerait en cours de
+     * route, sous les yeux de l'utilisateur.
+     *
+     * Son échec n'arrête rien : le reste se télécharge, et le mode combat
+     * reste jouable hors ligne avec les seules formes par défaut.
+     */
+    if (!enCache(client, FORMS_QUERY_KEY)) {
+      try {
+        await client.fetchQuery({
+          queryKey: [...FORMS_QUERY_KEY],
+          queryFn: async ({ signal }) =>
+            normalizeBattleForms(await gql<RawFormsResponse>(FORMS_QUERY, undefined, signal)),
+          staleTime: Infinity,
+          gcTime: Infinity,
+          retry: false,
+        })
+      } catch {
+        /* voir ci-dessus : on continue sans les formes */
+      }
+    }
+
+    if (abandon.signal.aborted) {
+      controleur.current = null
+      return
+    }
+
+    const idsFormes = idsFormesEnCache(client) ?? []
+
     const dejaLa = await urlsEnCache()
     const idsManquants = ids.filter(
       (id) => client.getQueryData(['pokedex', 'detail', id]) === undefined,
     )
     const urlsManquantes = serviceWorkerActif()
-      ? ids
+      ? [...ids, ...idsFormes]
           .flatMap((id) => [artworkUrl(id), showdownUrl(id)])
           .filter((url) => !dejaLa.has(url))
       : []
@@ -267,7 +343,7 @@ export function useOfflineDownload(ids: number[]) {
     )
 
     /*
-     * Les données du mode combat passent en premier : dix-neuf requêtes,
+     * Les données du mode combat passent en premier : vingt-trois requêtes,
      * pour qu'un téléchargement interrompu tôt laisse quand même les
      * combats jouables hors ligne.
      */
@@ -286,7 +362,13 @@ export function useOfflineDownload(ids: number[]) {
       )
     }
 
-    for (const lot of lotsDeCapacites(ids)) {
+    /*
+     * Les capacités des formes partent dans les mêmes lots que celles des
+     * espèces : 219 identifiants de plus, soit quatre requêtes. Sans elles,
+     * une Méga jouée hors ligne se battrait avec le seul vivier de son
+     * espèce — jouable, mais amputé de ses attaques propres.
+     */
+    for (const lot of [...lotsDeCapacites(ids), ...lotsDeCapacites(idsFormes)]) {
       if (enCache(client, movesetsKey(lot))) continue
       combat.push(() =>
         client.fetchQuery({
