@@ -142,10 +142,20 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   1244 combattants — 219 formes jouables et 1025 espèces — pas un seul cas de « face présente, dos
   absent » à l'intérieur d'une même famille d'images. En revanche **un** combattant n'a ni sprite
   animé ni sprite pixel, d'aucun côté : Méga-Zygarde, forme de Legends Z-A dont PokéAPI ne connaît
-  que les rendus récents. Les chaînes de l'arène se terminent donc par l'illustration officielle
-  puis le rendu HOME — des images **de face uniquement**, mais dont la réunion couvre les 1244 sans
-  exception. Le Pokémon est alors vu du mauvais angle ; c'est préférable à un cadre vide, et le
-  contrôle correspondant de `verify:battle` avertira si PokéAPI en ajoute d'autres.
+  que les rendus récents.
+- **Dans l'emplacement du joueur, la pose prime sur la forme.** Pour ce cas unique, deux replis
+  imparfaits s'opposaient : le dos de l'espèce (bonne pose, animé, mais la forme de base) ou le
+  rendu de face de la forme (bonne forme, mauvais angle). C'est le dos de l'espèce qui l'emporte —
+  un Pokémon de face au premier plan casse la lecture de la scène, on ne sait plus quel camp on
+  regarde, alors qu'une silhouette de base reste un dos crédible sous un encadré qui nomme la bonne
+  forme. Méga-Zygarde affiche donc `showdown/back/718.gif`. L'emplacement adverse, lui, ne se rabat
+  pas sur l'espèce : un rendu de face y est déjà la bonne pose, autant garder la bonne forme.
+  L'arbitrage n'existe que côté joueur.
+- **L'illustration et le rendu HOME restent le dernier recours absolu**, pour le jour où une espèce
+  n'aurait pas non plus de sprite de dos — aucune aujourd'hui. Leur réunion couvre les 1244 sans
+  exception (1243 et 1242 pris séparément), ce qui garantit qu'aucun combattant ne finit sur un
+  cadre vide. `verify:battle` contrôle les deux propriétés et avertira si PokéAPI ajoute d'autres
+  formes sans sprites.
 - **Une chaîne de replis doit descendre par paliers symétriques.** La vue de face sautait le sprite
   pixel pour aller directement à l'illustration : les 61 combattants sans sprite animé
   apparaissaient donc en pixel art dans le camp du joueur et en illustration lissée dans celui d'en

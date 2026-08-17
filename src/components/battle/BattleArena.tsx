@@ -25,8 +25,8 @@ function CombatSprite({
   const [etape, setEtape] = useState(0)
   const reduit = useReducedMotion()
 
-  const { spriteId: id, shiny } = battler
-  const sources = dos ? spritesDeDos(id, shiny) : spritesDeFace(id, shiny)
+  const { spriteId: id, dexId, shiny } = battler
+  const sources = dos ? spritesDeDos(id, shiny, dexId) : spritesDeFace(id, shiny)
   const index = Math.min(etape, sources.length - 1)
 
   /*

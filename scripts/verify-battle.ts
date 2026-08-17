@@ -450,24 +450,47 @@ console.log('\nDisponibilité des sprites de combat')
   )
 
   /*
-   * Le repli de dernier recours n'est pas hypothétique : il existe un cas
-   * réel, et ce contrôle avertira si PokéAPI en ajoute d'autres.
+   * Le repli sur l'espèce n'est pas hypothétique : il existe un cas réel, et
+   * ce contrôle avertira si PokéAPI en ajoute d'autres.
    */
-  const nomDe = (id: number) =>
-    [...jouables.values()].flat().find((f) => f.id === id)?.name ?? `n° ${id}`
+  const aplat = [...jouables.values()].flat()
+  const nomDe = (id: number) => aplat.find((f) => f.id === id)?.name ?? `n° ${id}`
   ok(
-    'un seul combattant tombe sur un rendu de face',
+    'une seule forme n’a aucun sprite de jeu propre',
     sansSpriteDeJeu.length === 1 && sansSpriteDeJeu[0] === 10301,
-    sansSpriteDeJeu.map(nomDe).join(', ') || 'aucun',
+    sansSpriteDeJeu.map(nomDe).join(', ') || 'aucune',
   )
 
-  /* Les chaînes de l'interface doivent aboutir sur ce cas précis. */
-  const attendues = spritesDeDos(10301, false)
+  /*
+   * Le point du repli : l'emplacement du joueur doit rester un dos. La
+   * chaîne doit donc atteindre le sprite de dos de l'espèce **avant** tout
+   * rendu de face.
+   */
+  const chaine = spritesDeDos(10301, false, 718)
+  const premierDos = chaine.find((url) => url === parId.get(718)?.showdownDos)
+  const premierRendu = chaine.findIndex(estUnRendu)
   ok(
-    'la chaîne de dos de Méga-Zygarde se termine sur un rendu',
-    estUnRendu(attendues[attendues.length - 1]) &&
-      attendues.some((url) => url === parId.get(10301)?.artwork),
-    attendues[attendues.length - 1].split('/pokemon/')[1],
+    'Méga-Zygarde se rabat sur le dos animé de son espèce',
+    Boolean(premierDos) && chaine.indexOf(premierDos!) < premierRendu,
+    premierDos?.split('/pokemon/')[1],
+  )
+
+  /*
+   * Et la garantie de fond : quelle que soit la forme, la chaîne de dos
+   * atteint un vrai sprite de dos — celui de la forme ou celui de son
+   * espèce — sans jamais devoir se rabattre sur un rendu de face.
+   */
+  const surRendu = aplat.filter((forme) => {
+    const propre = parId.get(forme.id)
+    const base = parId.get(forme.speciesId)
+    const aUnDos = (s?: { showdownDos: string | null; pixelDos: string | null }) =>
+      Boolean(s && (s.showdownDos || s.pixelDos))
+    return !aUnDos(propre) && !aUnDos(base)
+  })
+  ok(
+    'aucune forme ne finit de face dans l’emplacement du joueur',
+    surRendu.length === 0,
+    surRendu.map((f) => f.name).join(', ') || 'les 219 gardent un dos',
   )
 }
 

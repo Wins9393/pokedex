@@ -71,25 +71,45 @@ export const vignetteSources = (id: number, shiny = false) => [
 ]
 
 /**
- * Les deux chaînes de l'arène, du sprite de jeu au rendu de secours.
- *
- * Elles descendent d'abord dans les sprites du jeu — animés, puis pixel —
- * qui seuls donnent le bon angle de vue. Les 1244 combattants s'y arrêtent,
- * sauf **un** : Méga-Zygarde, forme de Legends Z-A dont PokéAPI n'a ni
- * sprite animé ni sprite pixel, ni de face ni de dos. Pour lui, et pour
- * toutes les formes récentes qui suivront, la chaîne se termine sur un
- * rendu de face : le Pokémon est alors vu du mauvais angle, mais c'est le
- * bon Pokémon plutôt qu'un cadre vide.
+ * Sprites de jeu d'un identifiant donné, animés puis pixel.
  *
  * Le chromatique passe en premier à chaque palier plutôt qu'une seule fois
  * en tête : mieux vaut un sprite pixel chromatique que le sprite animé
  * normal, sans quoi la couleur choisie disparaîtrait en silence.
  */
-export const spritesDeDos = (id: number, shiny: boolean) => [
+const spritesDeJeuDos = (id: number, shiny: boolean) => [
+  ...(shiny ? [showdownBackUrl(id, true), pixelBackUrl(id, true)] : []),
+  showdownBackUrl(id),
+  pixelBackUrl(id),
+]
+
+/**
+ * Chaîne de l'emplacement du joueur, vu de dos.
+ *
+ * Un combattant sur 1244 n'a aucun sprite de jeu, d'aucun côté :
+ * Méga-Zygarde, forme de Legends Z-A dont PokéAPI ne connaît que les rendus
+ * récents. Pour lui, deux replis imparfaits s'offrent, et il faut choisir
+ * lequel :
+ *
+ * - le **dos de son espèce** : bonne pose, bonne échelle, animé, mais la
+ *   forme de base à la place de la forme jouée ;
+ * - son **propre rendu de face** : la bonne forme, mais tournée vers le
+ *   joueur, dans l'emplacement précisément défini par le fait qu'on y voit
+ *   son Pokémon de dos.
+ *
+ * C'est la pose qui l'emporte. Un Pokémon de face au premier plan casse la
+ * lecture même de la scène — on ne sait plus lequel des deux camps on
+ * regarde —, là où une silhouette de base reste un dos crédible sous un
+ * encadré qui, lui, nomme la bonne forme.
+ *
+ * Les rendus de face restent en dernier recours absolu, pour le jour où une
+ * espèce n'aurait pas non plus de sprite de dos. Aucune aujourd'hui : les
+ * 1025 en ont toutes un.
+ */
+export const spritesDeDos = (id: number, shiny: boolean, espece = id) => [
   ...new Set([
-    ...(shiny ? [showdownBackUrl(id, true), pixelBackUrl(id, true)] : []),
-    showdownBackUrl(id),
-    pixelBackUrl(id),
+    ...spritesDeJeuDos(id, shiny),
+    ...(espece === id ? [] : spritesDeJeuDos(espece, shiny)),
     ...rendus(id, shiny),
   ]),
 ]
@@ -99,6 +119,10 @@ export const spritesDeDos = (id: number, shiny: boolean) => [
  * Sans lui, les 61 combattants sans sprite animé apparaissaient en pixel
  * art dans le camp du joueur et en illustration lissée dans celui d'en
  * face : le même Pokémon n'avait pas le même rendu selon le côté du terrain.
+ *
+ * Elle ne se rabat pas, elle, sur l'espèce : un rendu de face est déjà la
+ * bonne pose pour l'emplacement adverse, donc autant garder la bonne forme.
+ * L'arbitrage n'existe que côté joueur, où pose et forme s'opposent.
  */
 export const spritesDeFace = (id: number, shiny: boolean) => [
   ...new Set([
