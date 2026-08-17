@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import { Link } from 'react-router'
 import { ActionPanel, ListeRemplacants } from '@/components/battle/ActionPanel'
 import { BattleArena } from '@/components/battle/BattleArena'
+import { DUREE_JAUGE } from '@/components/battle/HealthBar'
 import { PassScreen } from '@/components/battle/PassScreen'
 import { TeamPicker } from '@/components/battle/TeamPicker'
 import { ErrorScreen, LoadingScreen } from '@/components/ui/StateScreens'
@@ -21,7 +22,7 @@ import {
   remplacantsDisponibles,
   resoudreTour,
 } from '@/lib/battle/engine'
-import { texteEvenement } from '@/lib/battle/log'
+import { estMuet, texteEvenement } from '@/lib/battle/log'
 import { graineAleatoire } from '@/lib/battle/rng'
 import type { Action, BattleEvent, BattleState, Choix, Side, Team } from '@/lib/battle/types'
 import type { TypeChart } from '@/lib/type-chart'
@@ -39,6 +40,16 @@ type Ecran =
 
 /** Écran de passage en attente : il masque l'écran suivant jusqu'au tap. */
 type Passage = { vers: 1 | 2; ecran: Ecran; detail?: string }
+
+/** Le temps de laisser l'œil se poser sur la valeur d'arrivée de la jauge. */
+const MARGE_JAUGE = 150
+
+/**
+ * Plancher pour `prefers-reduced-motion`, où la jauge saute à sa valeur
+ * finale en zéro seconde. Sans lui l'étape muette passerait inaperçue, et
+ * les PV changeraient sans qu'on ait rien vu descendre.
+ */
+const PLANCHER_MUET = 250
 
 /**
  * Rejoue un événement sur l'état affiché. L'interface ne saute pas
@@ -108,9 +119,10 @@ export function BattlePage() {
    * chronomètre mais à la tape : le joueur 2 vient de choisir son attaque
    * et ne s'attendait pas à la réponse, il lui faut le temps de la lire.
    *
-   * Une tape par événement, y compris pour les dégâts qui n'ont pas de
-   * phrase : la jauge qui se vide est le paiement de l'attaque annoncée
-   * juste avant, elle doit se déclencher et non survenir.
+   * Une étape par événement. On tape pour ce qu'on lit ; ce qu'on regarde
+   * s'enchaîne seul — la jauge qui se vide est déclenchée par la tape
+   * donnée sur l'annonce de l'attaque, et n'a rien de nouveau à faire lire
+   * une fois arrivée.
    */
   const [evenements, setEvenements] = useState<BattleEvent[]>([])
   const [curseur, setCurseur] = useState(0)
@@ -224,6 +236,26 @@ export function BattlePage() {
     setImpact(null)
     enchainer(etat)
   }, [curseur, evenements.length, etat, passage, enchainer])
+
+  /* --- Enchaînement des étapes muettes ------------------------------ */
+  const reduit = useReducedMotion()
+  const etapeCourante = ecran.kind === 'replay' ? evenements[curseur] : undefined
+  const etapeMuette = etapeCourante !== undefined && estMuet(etapeCourante)
+
+  useEffect(() => {
+    if (!etapeMuette) return
+
+    /*
+     * Le minuteur **accélère**, il n'autorise pas : la surface de
+     * progression reste active pendant l'étape, donc un onglet en veille —
+     * où les minuteurs sont plafonnés — retarde l'enchaînement sans jamais
+     * bloquer le combat. C'est la différence avec un rejeu suspendu à la fin
+     * d'une animation, qui n'a lui aucune porte de sortie.
+     */
+    const delai = reduit ? PLANCHER_MUET : DUREE_JAUGE * 1000 + MARGE_JAUGE
+    const minuteur = window.setTimeout(avancerRecit, delai)
+    return () => window.clearTimeout(minuteur)
+  }, [etapeMuette, curseur, reduit, avancerRecit])
 
   /* --- Actions ------------------------------------------------------- */
   const choisirEquipe = (choisis: Choix[]) => {
@@ -363,6 +395,7 @@ export function BattlePage() {
               message={message}
               impact={impact}
               curseur={curseur}
+              attendTape={ecran.kind === 'replay' && !etapeMuette}
               onAvancer={avancerRecit}
               onAction={choisirAction}
               onRemplacer={choisirRemplacant}
@@ -415,6 +448,11 @@ type CombatProps = {
   impact: Side | null
   /** Étape à l'écran : réarme le verrou à chaque avancée. */
   curseur: number
+  /**
+   * Faux pendant une étape muette, qui s'enchaîne d'elle-même : annoncer
+   * une attente qui n'existe pas mentirait sur l'état de l'écran.
+   */
+  attendTape: boolean
   onAvancer: () => void
   onAction: (action: Action) => void
   onRemplacer: (index: number) => void
@@ -429,6 +467,7 @@ function Combat({
   message,
   impact,
   curseur,
+  attendTape,
   onAvancer,
   onAction,
   onRemplacer,
@@ -484,8 +523,9 @@ function Combat({
         </motion.p>
 
         {/* Le chevron des jeux : sans repère visible, on ne sait pas si
-            l'écran attend une tape ou s'il s'est figé. */}
-        {enRejeu && (
+            l'écran attend une tape ou s'il s'est figé. Il disparaît pendant
+            la descente de la jauge, qui n'attend rien de personne. */}
+        {attendTape && (
           <motion.span
             aria-hidden="true"
             animate={reduit ? undefined : { opacity: [1, 0.25, 1], y: [0, 3, 0] }}
@@ -552,7 +592,7 @@ function Combat({
           </div>
         )}
 
-        {enRejeu && (
+        {attendTape && (
           <p className="text-center text-ink-faint text-sm">
             Touche l’écran pour continuer
           </p>

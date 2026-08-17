@@ -7,6 +7,16 @@ type Props = {
   chiffres?: boolean
 }
 
+/**
+ * Durée de la descente, en secondes.
+ *
+ * Exportée parce que le rejeu s'en sert : l'étape de dégâts n'a pas de
+ * phrase, donc rien à lire, et s'enchaîne d'elle-même une fois la jauge
+ * arrivée. Recopier la valeur là-bas la laisserait dériver de celle-ci — on
+ * enchaînerait avant la fin de la descente, ou après un temps mort.
+ */
+export const DUREE_JAUGE = 0.55
+
 /** Vert, orange, rouge — les trois paliers des jeux. */
 function ton(ratio: number) {
   if (ratio > 0.5) return { barre: 'bg-emerald-500', texte: 'text-emerald-500' }
@@ -28,7 +38,7 @@ export function HealthBar({ hp, maxHp, chiffres = false }: Props) {
             className={`h-full rounded-full ${couleurs.barre}`}
             initial={false}
             animate={{ width: `${ratio * 100}%` }}
-            transition={reduit ? { duration: 0 } : { duration: 0.55, ease: 'easeOut' }}
+            transition={reduit ? { duration: 0 } : { duration: DUREE_JAUGE, ease: 'easeOut' }}
           />
         </div>
       </div>

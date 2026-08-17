@@ -35,10 +35,11 @@ export function texteEvenement(event: BattleEvent): string | null {
  * Vrai si l'événement ne fait qu'agir à l'écran, sans rien dire — les
  * dégâts, aujourd'hui les seuls.
  *
- * Ils avancent malgré tout à la tape, comme le reste : une jauge qui se
- * vide est le paiement de l'attaque annoncée juste avant, et la déclencher
- * d'elle-même rendait le deuxième attaquant du tour plus expéditif que le
- * premier — dont les dégâts, eux, tombaient après une tape dès qu'une ligne
- * d'efficacité s'intercalait.
+ * Ces étapes-là existent bel et bien : la jauge qui se vide est le paiement
+ * de l'attaque annoncée juste avant, et c'est la tape donnée sur cette
+ * annonce qui la déclenche. Mais on ne tape pas pour en sortir : il n'y a
+ * rien de nouveau à lire, et la tape ne ferait que congédier une phrase
+ * déjà lue. Elles s'enchaînent donc d'elles-mêmes, une fois l'animation
+ * passée — voir `DUREE_JAUGE`.
  */
 export const estMuet = (event: BattleEvent) => texteEvenement(event) === null

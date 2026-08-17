@@ -504,6 +504,7 @@ console.log('\nRythme du récit d’un tour')
   ]
 
   let evenements = 0
+  let tapes = 0
   let tours = 0
   let pire = 0
   /** Dégâts qu'aucune phrase ne précède : la jauge tomberait sans contexte. */
@@ -534,9 +535,12 @@ console.log('\nRythme du récit d’un tour')
       const resultat = resoudreTour(etat, choix, chart)
       const events = resultat.events
 
+      // Les étapes muettes s'enchaînent seules : seules les autres se tapent.
+      const aTaper = events.filter((event) => !estMuet(event)).length
       evenements += events.length
+      tapes += aTaper
       tours += 1
-      pire = Math.max(pire, events.length)
+      pire = Math.max(pire, aTaper)
 
       if (events[0] && estMuet(events[0])) ouvertureMuette += 1
 
@@ -562,8 +566,13 @@ console.log('\nRythme du récit d’un tour')
   ok('un tour ne s’ouvre jamais sur une étape muette', ouvertureMuette === 0)
   ok(
     'un tour reste court à dérouler',
-    pire <= 8,
-    `${pire} tapes au pire, ${(evenements / tours).toFixed(1)} en moyenne sur ${tours} tours`,
+    pire <= 6,
+    `${pire} tapes au pire, ${(tapes / tours).toFixed(1)} en moyenne sur ${tours} tours`,
+  )
+  ok(
+    'les étapes muettes allègent bien le rythme',
+    tapes < evenements,
+    `${evenements - tapes} chutes de jauge enchaînées seules sur ${evenements} étapes`,
   )
 }
 

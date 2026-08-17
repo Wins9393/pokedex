@@ -76,9 +76,11 @@ L'aléatoire passe par un générateur à graine. Sans lui le moteur serait inte
 quatre secondes environ, ce qui suffit à lire chaque ligne *si on l'attendait* — or le joueur 2
 vient de choisir son attaque et découvre la réponse.
 
-Une tape par événement, y compris pour les dégâts, qui n'ont pas de phrase : la jauge qui se vide
-est le paiement de l'attaque annoncée juste avant, elle doit se déclencher et non survenir. Mesuré
-sur 370 tours simulés : **4,7 tapes par tour** en moyenne, huit au pire.
+Chaque événement a son étape, mais **on tape pour ce qu'on lit, pas pour ce qu'on regarde**. La
+jauge qui se vide est déclenchée par la tape donnée sur l'annonce de l'attaque, puis s'enchaîne
+d'elle-même : une fois descendue, elle n'a rien de nouveau à faire lire, et la tape n'aurait servi
+qu'à congédier une phrase déjà lue. Mesuré sur 370 tours simulés : **3,3 tapes par tour** en
+moyenne, six au pire.
 
 La sélection d'équipe réutilise tout l'appareillage de filtres de la grille — panneau, tiroir, chips,
 tri — à une différence près : ses filtres sont **locaux au lieu de vivre dans l'URL**, sans quoi ceux
@@ -276,8 +278,22 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   moteur est `attaque → [critique] → [efficacité] → dégâts`, si bien que les dégâts ne se
   détachaient de l'annonce que lorsqu'une ligne d'efficacité s'intercalait. Sur un échange neutre,
   le premier attaquant voyait donc la jauge tomber après une tape et le second sans en donner —
-  deux rythmes pour la même action. Chaque événement a désormais son étape : la jauge se déclenche
-  toujours, et la ligne précédente reste affichée pendant qu'elle se vide, comme dans les jeux.
+  deux rythmes pour la même action. Chaque événement a désormais son étape.
+- **Mais on ne tape pas pour *sortir* d'une étape muette.** La séparer de l'annonce lui donne son
+  déclencheur ; lui demander en plus une tape pour en sortir en ajoutait une qui ne révélait rien,
+  puisque le texte ne change pas. Les étapes muettes s'enchaînent donc seules une fois l'animation
+  passée, et le chevron s'efface pendant ce temps — le laisser clignoter annoncerait une attente
+  qui n'existe pas.
+- **Le minuteur accélère, il n'autorise pas.** La surface de progression reste active pendant
+  l'étape muette : un onglet en veille, où `setTimeout` est plafonné à une seconde et où
+  `requestAnimationFrame` est carrément suspendu, retarde l'enchaînement sans jamais bloquer le
+  combat. C'est ce qui distingue ce minuteur d'un rejeu suspendu à la fin d'une animation —
+  `AnimatePresence mode="wait"` en son temps — qui n'avait, lui, aucune porte de sortie.
+- **La durée est exportée, pas recopiée.** `DUREE_JAUGE` vit dans `HealthBar` et sert des deux
+  côtés : l'animation et le délai d'enchaînement. Deux constantes séparées dériveraient en silence,
+  et on enchaînerait avant la fin de la descente ou après un temps mort. Sous
+  `prefers-reduced-motion`, la jauge saute à sa valeur finale en zéro seconde : un plancher de
+  250 ms garde la chute perceptible.
 - **Deux cibles plein écran qui se succèdent, c'est une tape qui traverse.** La surface qui déroule
   le récit et l'écran de passage occupent tous deux la fenêtre entière : sans précaution, la tape
   qui révèle la dernière réplique franchit l'écran de passage dans la foulée, et le joueur suivant
