@@ -21,7 +21,7 @@ import {
   remplacantsDisponibles,
   resoudreTour,
 } from '@/lib/battle/engine'
-import { grouperEnRepliques, texteEvenement } from '@/lib/battle/log'
+import { texteEvenement } from '@/lib/battle/log'
 import { graineAleatoire } from '@/lib/battle/rng'
 import type { Action, BattleEvent, BattleState, Choix, Side, Team } from '@/lib/battle/types'
 import type { TypeChart } from '@/lib/type-chart'
@@ -104,12 +104,15 @@ export function BattlePage() {
 
   const [enAttente, setEnAttente] = useState<Action | null>(null)
   /**
-   * Le tour découpé en répliques, et celle à l'écran. Le rejeu n'avance
-   * plus au chronomètre mais à la tape : le joueur 2 vient de choisir son
-   * attaque et ne s'attendait pas à la réponse, il lui faut le temps de la
-   * lire.
+   * Le récit du tour, et l'étape à l'écran. Le rejeu n'avance plus au
+   * chronomètre mais à la tape : le joueur 2 vient de choisir son attaque
+   * et ne s'attendait pas à la réponse, il lui faut le temps de la lire.
+   *
+   * Une tape par événement, y compris pour les dégâts qui n'ont pas de
+   * phrase : la jauge qui se vide est le paiement de l'attaque annoncée
+   * juste avant, elle doit se déclencher et non survenir.
    */
-  const [repliques, setRepliques] = useState<BattleEvent[][]>([])
+  const [evenements, setEvenements] = useState<BattleEvent[]>([])
   const [curseur, setCurseur] = useState(0)
   const [message, setMessage] = useState<string | null>(null)
   const [impact, setImpact] = useState<Side | null>(null)
@@ -184,28 +187,24 @@ export function BattlePage() {
     setPassage({ vers: 1, ecran: { kind: 'choix', side: 0 } })
   }, [])
 
-  /* --- Rejeu des répliques, au rythme du joueur --------------------- */
+  /* --- Rejeu du récit, au rythme du joueur -------------------------- */
   useEffect(() => {
     if (ecran.kind !== 'replay') return
 
-    const replique = repliques[curseur]
-    if (!replique) return
+    const event = evenements[curseur]
+    if (!event) return
 
-    const texte = replique.map(texteEvenement).find((valeur) => valeur !== null)
+    // Les dégâts n'ont pas de phrase : la ligne précédente reste affichée
+    // pendant que la jauge se vide, comme dans les jeux.
+    const texte = texteEvenement(event)
     if (texte) setMessage(texte)
 
-    // Les événements muets de la réplique — la chute des PV — sont appliqués
-    // avec la phrase à laquelle ils appartiennent, et non à une tape à part.
-    setAffiche((precedent) =>
-      precedent ? replique.reduce(appliquer, precedent) : precedent,
-    )
+    setAffiche((precedent) => (precedent ? appliquer(precedent, event) : precedent))
+    setImpact(event.kind === 'damage' ? ((1 - event.side) as Side) : null)
+  }, [ecran, curseur, evenements])
 
-    const degats = replique.find((event) => event.kind === 'damage')
-    setImpact(degats ? ((1 - degats.side) as Side) : null)
-  }, [ecran, curseur, repliques])
-
-  /** Une tape fait avancer d'une réplique, et clôt le rejeu à la dernière. */
-  const avancerReplique = useCallback(() => {
+  /** Une tape fait avancer d'un événement, et clôt le rejeu au dernier. */
+  const avancerRecit = useCallback(() => {
     /*
      * La surface reste montée sous l'écran de passage, qui la recouvre
      * entièrement. Un doigt ne peut donc plus l'atteindre — mais le clavier,
@@ -214,7 +213,7 @@ export function BattlePage() {
      */
     if (!etat || passage) return
 
-    if (curseur + 1 < repliques.length) {
+    if (curseur + 1 < evenements.length) {
       setCurseur((valeur) => valeur + 1)
       return
     }
@@ -224,7 +223,7 @@ export function BattlePage() {
     setAffiche(etat)
     setImpact(null)
     enchainer(etat)
-  }, [curseur, repliques.length, etat, passage, enchainer])
+  }, [curseur, evenements.length, etat, passage, enchainer])
 
   /* --- Actions ------------------------------------------------------- */
   const choisirEquipe = (choisis: Choix[]) => {
@@ -254,7 +253,7 @@ export function BattlePage() {
 
     setAffiche(etat)
     setEtat(resultat.etat)
-    setRepliques(grouperEnRepliques(resultat.events))
+    setEvenements(resultat.events)
     setCurseur(0)
     setEnAttente(null)
     setEcran({ kind: 'replay' })
@@ -275,7 +274,7 @@ export function BattlePage() {
   const rejouer = (memesEquipes: boolean) => {
     setEtat(null)
     setAffiche(null)
-    setRepliques([])
+    setEvenements([])
     setCurseur(0)
     setMessage(null)
     setImpact(null)
@@ -364,7 +363,7 @@ export function BattlePage() {
               message={message}
               impact={impact}
               curseur={curseur}
-              onAvancer={avancerReplique}
+              onAvancer={avancerRecit}
               onAction={choisirAction}
               onRemplacer={choisirRemplacant}
               onRejouer={rejouer}
@@ -414,7 +413,7 @@ type CombatProps = {
   chart: TypeChart | undefined
   message: string | null
   impact: Side | null
-  /** Réplique à l'écran : réarme le verrou à chaque avancée. */
+  /** Étape à l'écran : réarme le verrou à chaque avancée. */
   curseur: number
   onAvancer: () => void
   onAction: (action: Action) => void

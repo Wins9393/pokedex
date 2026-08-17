@@ -17,7 +17,7 @@ import { buildTypeChart } from '@/lib/type-chart'
 import { statsDeCombat } from '@/lib/battle/stats'
 import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
 import { estUnRendu, spritesDeDos } from '@/lib/sprites'
-import { grouperEnRepliques, texteEvenement } from '@/lib/battle/log'
+import { estMuet } from '@/lib/battle/log'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
 import { resoudreFrappe } from '@/lib/battle/damage'
 import { creerBattler, creerCombat, resoudreTour, actif } from '@/lib/battle/engine'
@@ -495,8 +495,8 @@ console.log('\nDisponibilité des sprites de combat')
   )
 }
 
-/* 9. Découpage du récit en répliques ---------------------------------- */
-console.log('\nDécoupage d’un tour en répliques')
+/* 9. Rythme du récit --------------------------------------------------- */
+console.log('\nRythme du récit d’un tour')
 {
   const equipes = (): [ReturnType<typeof battler>[], ReturnType<typeof battler>[]] => [
     [battler(6), battler(25), battler(143)],
@@ -504,10 +504,14 @@ console.log('\nDécoupage d’un tour en répliques')
   ]
 
   let evenements = 0
-  let repliques = 0
+  let tours = 0
   let pire = 0
-  let sansTexte = 0
-  let perdus = 0
+  /** Dégâts qu'aucune phrase ne précède : la jauge tomberait sans contexte. */
+  let degatsOrphelins = 0
+  /** Tours dont la première étape serait muette : le rejeu s'ouvrirait sur rien. */
+  let ouvertureMuette = 0
+  /** Attaques dont les dégâts ne sont pas une étape à part. */
+  let degatsColles = 0
 
   for (let partie = 0; partie < 40; partie++) {
     let etat = creerCombat(equipes(), 3000 + partie)
@@ -528,30 +532,39 @@ console.log('\nDécoupage d’un tour en répliques')
       })) as [never, never]
 
       const resultat = resoudreTour(etat, choix, chart)
-      const groupes = grouperEnRepliques(resultat.events)
+      const events = resultat.events
 
-      evenements += resultat.events.length
-      repliques += groupes.length
-      pire = Math.max(pire, groupes.length)
-      perdus += resultat.events.length - groupes.flat().length
-      sansTexte += groupes.filter((g) => g.every((e) => texteEvenement(e) === null)).length
+      evenements += events.length
+      tours += 1
+      pire = Math.max(pire, events.length)
+
+      if (events[0] && estMuet(events[0])) ouvertureMuette += 1
+
+      events.forEach((event, index) => {
+        if (event.kind !== 'damage') return
+        // Une étape par événement : les dégâts ne partagent jamais leur tape.
+        if (!events.slice(0, index).some((precedent) => !estMuet(precedent))) {
+          degatsOrphelins += 1
+        }
+        if (estMuet(events[index - 1] ?? event)) degatsColles += 1
+      })
 
       etat = resultat.etat
     }
   }
 
-  ok('aucun événement perdu au découpage', perdus === 0, `${evenements} événements`)
   ok(
-    'chaque réplique porte une phrase',
-    sansTexte === 0,
-    'une tape change toujours le texte à l’écran',
+    'les dégâts sont toujours annoncés par une phrase',
+    degatsOrphelins === 0,
+    'la jauge ne tombe jamais sans contexte',
   )
+  ok('deux dégâts ne se suivent jamais', degatsColles === 0, 'une tape par chute de jauge')
+  ok('un tour ne s’ouvre jamais sur une étape muette', ouvertureMuette === 0)
   ok(
-    'le découpage réduit bien le nombre de tapes',
-    repliques < evenements,
-    `${(evenements / repliques).toFixed(2)} événement(s) par réplique`,
+    'un tour reste court à dérouler',
+    pire <= 8,
+    `${pire} tapes au pire, ${(evenements / tours).toFixed(1)} en moyenne sur ${tours} tours`,
   )
-  ok('un tour reste court à dérouler', pire <= 8, `${pire} tapes au pire, ${(repliques / 40).toFixed(1)} par partie`)
 }
 
 /* 10. Combat complet -------------------------------------------------- */

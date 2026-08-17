@@ -74,10 +74,11 @@ L'aléatoire passe par un générateur à graine. Sans lui le moteur serait inte
 
 **Le récit avance à la tape, pas au chronomètre**, comme dans les jeux. Le tour se résolvait en
 quatre secondes environ, ce qui suffit à lire chaque ligne *si on l'attendait* — or le joueur 2
-vient de choisir son attaque et découvre la réponse. Les événements sont donc groupés en
-**répliques** : une phrase et tout ce qui l'accompagne sans rien dire, la chute de la barre de vie
-au premier chef. Mesuré sur 528 tours simulés, un tour compte cinq événements en médiane mais
-seulement **trois répliques** — soit trois tapes, six au pire.
+vient de choisir son attaque et découvre la réponse.
+
+Une tape par événement, y compris pour les dégâts, qui n'ont pas de phrase : la jauge qui se vide
+est le paiement de l'attaque annoncée juste avant, elle doit se déclencher et non survenir. Mesuré
+sur 370 tours simulés : **4,7 tapes par tour** en moyenne, huit au pire.
 
 La sélection d'équipe réutilise tout l'appareillage de filtres de la grille — panneau, tiroir, chips,
 tri — à une différence près : ses filtres sont **locaux au lieu de vivre dans l'URL**, sans quoi ceux
@@ -269,10 +270,14 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   venait d'ouvrir « Changer de Pokémon » passait la main à un adversaire dont le tour s'ouvrait sur
   la liste de changement au lieu de ses attaques. Une `key` portant le camp et le Pokémon force le
   remontage.
-- **Une tape qui ne change rien à l'écran passe pour une tape ignorée.** Le récit d'un tour compte
-  des événements muets — les dégâts n'ont pas de phrase, c'est la barre de vie qui parle. En faire
-  des étapes à part imposerait des tapes sans effet visible. Ils sont donc groupés avec la phrase à
-  laquelle ils appartiennent : 1,43 événement par réplique, et chaque tape fait apparaître un texte.
+- **Une tape doit changer quelque chose de *visible*, pas nécessairement le texte.** Les événements
+  muets — les dégâts, dont c'est la barre de vie qui parle — avaient d'abord été groupés avec la
+  phrase qui les précède, pour qu'aucune tape ne semble ignorée. Mauvais critère : l'ordre du
+  moteur est `attaque → [critique] → [efficacité] → dégâts`, si bien que les dégâts ne se
+  détachaient de l'annonce que lorsqu'une ligne d'efficacité s'intercalait. Sur un échange neutre,
+  le premier attaquant voyait donc la jauge tomber après une tape et le second sans en donner —
+  deux rythmes pour la même action. Chaque événement a désormais son étape : la jauge se déclenche
+  toujours, et la ligne précédente reste affichée pendant qu'elle se vide, comme dans les jeux.
 - **Deux cibles plein écran qui se succèdent, c'est une tape qui traverse.** La surface qui déroule
   le récit et l'écran de passage occupent tous deux la fenêtre entière : sans précaution, la tape
   qui révèle la dernière réplique franchit l'écran de passage dans la foulée, et le joueur suivant

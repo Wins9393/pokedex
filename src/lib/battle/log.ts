@@ -5,7 +5,8 @@ import type { BattleEvent } from './types'
  *
  * Renvoyer `null` n'est pas un oubli : les dégâts n'ont pas de phrase
  * propre dans les jeux, la barre de vie qui descend suffit. L'interface
- * conserve alors le message précédent le temps de l'animation.
+ * conserve alors la ligne précédente pendant que la jauge se vide — c'est
+ * bien une étape à part entière, qui attend sa tape comme les autres.
  */
 export function texteEvenement(event: BattleEvent): string | null {
   switch (event.kind) {
@@ -31,27 +32,13 @@ export function texteEvenement(event: BattleEvent): string | null {
 }
 
 /**
- * Découpe le récit d'un tour en **répliques** : une phrase, suivie de tout
- * ce qui l'accompagne sans rien dire — la chute de la barre de vie, pour
- * l'essentiel.
+ * Vrai si l'événement ne fait qu'agir à l'écran, sans rien dire — les
+ * dégâts, aujourd'hui les seuls.
  *
- * C'est l'unité que le joueur fait avancer d'une tape, et le groupement
- * n'est pas cosmétique : une tape qui ne changerait aucun mot à l'écran
- * passerait pour une tape ignorée. Sur 528 tours simulés, un tour compte
- * cinq événements en médiane mais seulement **trois répliques**.
- *
- * Un événement muet qui n'en suit aucun autre forme sa propre réplique
- * plutôt que d'être perdu — cas qui ne se produit pas aujourd'hui, les
- * dégâts suivant toujours une attaque, mais qui ne coûte rien à couvrir.
+ * Ils avancent malgré tout à la tape, comme le reste : une jauge qui se
+ * vide est le paiement de l'attaque annoncée juste avant, et la déclencher
+ * d'elle-même rendait le deuxième attaquant du tour plus expéditif que le
+ * premier — dont les dégâts, eux, tombaient après une tape dès qu'une ligne
+ * d'efficacité s'intercalait.
  */
-export function grouperEnRepliques(events: readonly BattleEvent[]): BattleEvent[][] {
-  const repliques: BattleEvent[][] = []
-
-  for (const event of events) {
-    const courante = repliques[repliques.length - 1]
-    if (texteEvenement(event) !== null || !courante) repliques.push([event])
-    else courante.push(event)
-  }
-
-  return repliques
-}
+export const estMuet = (event: BattleEvent) => texteEvenement(event) === null
