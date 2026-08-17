@@ -34,6 +34,9 @@ npm run dev
 - **Mode combat à deux sur un seul téléphone** : chaque joueur compose une équipe de trois, puis les
   deux choisissent leur action derrière un écran de passage avant que le tour ne se résolve. Chaque
   attaque annonce son efficacité contre le Pokémon en face.
+- **Formes et chromatiques au combat** : 219 formes jouables — Méga, Primo, régionales, Motisma,
+  Deoxys — avec leurs propres types et statistiques, et la variante chromatique pour n'importe quel
+  Pokémon.
 
 ## Choix techniques
 
@@ -93,6 +96,29 @@ légèrement faux —, il est vérifié hors interface sur des valeurs calculée
 npm run verify:battle
 ```
 
+#### Formes et chromatiques
+
+Une forme n'est qu'une **autre source de types, de statistiques et de sprites** : le moteur ignore
+qu'elle existe. Elle se choisit après le Pokémon, sur l'emplacement d'équipe lui-même — verser les
+219 formes dans la liste ferait défiler trois Dracaufeu de suite pour un choix qui ne concerne que
+179 des 1025 espèces.
+
+PokéAPI expose 326 Pokémon non-défaut, ramenés à **219 sur 179 espèces** par trois règles lues dans
+les données plutôt que dans une liste de noms :
+
+| Écarté | Repéré par | Volume |
+| --- | --- | --- |
+| Purement décoratif | mêmes types **et** mêmes statistiques que l'espèce | 92 — dont 33 Gigamax, 10 Alpha, les Pikachu déguisés |
+| Fratrie identique | empreinte déjà vue chez la même espèce | les 7 noyaux de Minior → 1 |
+| Hors barème | total supérieur à 800 | 1 — Éthernatos Infinimax et ses 1125 |
+
+Le tout tient en **une requête de 159 Ko** (13 Ko compressés). Les Méga plafonnent ensuite à 780,
+contre 720 pour Arceus déjà présent au dex.
+
+Le chromatique, lui, ne coûte **rien du tout** : là où le sprite normal existe, le chromatique
+existe aussi — vérifié sans exception sur les 1025 espèces (1004 sprites Showdown de dos, 1004 en
+chromatique) comme sur les formes (264 et 264). C'est un booléen et un segment d'URL.
+
 ### Pièges rencontrés
 
 Quelques points qui ne se devinent pas et sont documentés dans le code :
@@ -149,9 +175,20 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 - **Contre cette limite, ralentir ne suffit pas : il faut demander moins souvent.** Le
   téléchargement intégral émettait une requête par Pokémon, soit plus d'un millier, et se faisait
   couper autour de la deux centième — il plafonnait à 10 %. Toutes les requêtes d'API partent
-  désormais par lots : 52 pour les fiches (vingt à la fois), 18 pour les capacités (soixante), une
-  pour la table d'attaques. **71 requêtes au lieu de 1044**, et le dex entier arrive en une
-  vingtaine de secondes. La cadence auto-ajustée reste, mais comme filet plutôt que comme parade.
+  désormais par lots : 52 pour les fiches (vingt à la fois), 22 pour les capacités (soixante,
+  espèces et formes confondues), une pour la table d'attaques et une pour celle des formes.
+  **76 requêtes au lieu de 1044**, et le dex entier arrive en une vingtaine de secondes. La cadence
+  auto-ajustée reste, mais comme filet plutôt que comme parade.
+- **La table des formes se récupère avant la planification, pas pendant.** C'est elle qui dit
+  quelles capacités et quelles images restent à chercher : la compter comme une tâche parmi les
+  autres obligerait à publier un total qui changerait en cours de route, sous les yeux de
+  l'utilisateur. Son échec n'arrête rien — le reste se télécharge et les combats restent jouables
+  hors ligne avec les seules formes par défaut.
+- **Toutes les images de formes n'existent pas**, et l'état « complet » ne peut donc pas en
+  dépendre : sur les 219 formes jouables, une n'a aucune illustration officielle et 41 pas de
+  sprite animé. Elles se téléchargent quand même, mais seul le compte des illustrations d'espèces —
+  1025 sur 1025 — décide de la complétude. Le chromatique, lui, n'est **pas** préchargé : ce serait
+  doubler le volume pour du décoratif, et l'arène retombe d'elle-même sur les couleurs normales.
 - **Un blocage d'API ne doit pas emporter les images.** Elles viennent d'un CDN qui n'a rien à voir
   avec PokéAPI : le blocage est donc propre à chaque phase, et les sprites se téléchargent même si
   l'API vient de couper.
@@ -199,6 +236,28 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 - **`size-[n%]` ne donne pas un carré.** Le pourcentage se rapporte à la largeur du parent pour la
   largeur et à sa hauteur pour la hauteur : dans une arène en 16/10, la boîte obtenue est aplatie et
   les sprites s'y retrouvent tassés. `aspect-square` avec une largeur en pourcentage, lui, tient.
+- **Les capacités des formes sont trouées, dans les deux sens.** Prendre le vivier de la forme
+  seule condamnerait 50 des 219 formes jouables à se battre à Lutte — les Méga de Legends Z-A et
+  les Gigamax n'ont aucune capacité dans l'API. Mais prendre celui de l'espèce seule priverait 32
+  formes de leur seule attaque du bon type : Ossatueur apprend le Feu par CT, jamais le Spectre,
+  que sa forme d'Alola est seule à porter. D'où **l'union des deux viviers**, gratuite puisque la
+  requête prend déjà une liste : douze identifiants tiennent dans le même aller-retour que six.
+- **Le total des statistiques ne distingue pas les formes.** Les quatre Deoxys pèsent 600 chacune et
+  ne diffèrent que par la répartition. La feuille de choix affiche donc les deux statistiques les
+  plus fortes — sans quoi elle proposerait quatre lignes identiques pour quatre Pokémon qui se
+  jouent de façons opposées.
+- **Un emplacement d'équipe fait 108 px de large sur mobile.** En ligne, sprite et croix ne
+  laissaient qu'une vingtaine de pixels au nom : même « Deoxys » était tronqué. La disposition est
+  passée en colonne, et la croix en surimpression dans le coin, ce qui rend la largeur entière au
+  libellé — nécessaire dès qu'il s'agit d'« Ossatueur d'Alola ».
+- **Un état de repli d'image doit se réinitialiser avec la source.** Le composant qui descend la
+  chaîne des sprites retient l'étape atteinte ; sans remise à zéro, un Pokémon dont l'image
+  manquait faisait démarrer le suivant sur son propre repli. L'étape est donc dérivée de la source
+  courante plutôt que laissée à la discipline de l'appelant.
+- **`{/* … */}` n'est pas valide en position d'attribut JSX.** Un commentaire glissé entre deux
+  attributs casse la compilation, et Vite se contente alors de ne pas recharger le module : la page
+  continue de tourner sur l'ancienne version, ce qui donne toutes les apparences d'une modification
+  sans effet.
 
 ### Structure
 
@@ -206,8 +265,8 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 src/
 ├── api/        client GraphQL, requêtes, normalisation des réponses
 ├── lib/        recherche, filtres, table des types, sprites, formatage
-│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, tours
-├── hooks/      index, fiche, attaques, filtres (URL), favoris, thème, cri, inclinaison 3D
+│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, formes, tours
+├── hooks/      index, fiche, attaques, formes, filtres (URL), favoris, thème, cri, inclinaison 3D
 ├── components/ layout · grid · filters · detail · battle · ui
 └── pages/      PokedexPage · BattlePage
 ```
