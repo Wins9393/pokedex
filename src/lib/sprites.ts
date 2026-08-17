@@ -14,6 +14,9 @@ export const artworkUrl = (id: number, shiny = false) =>
 export const showdownUrl = (id: number, shiny = false) =>
   `${SPRITES}/other/showdown/${shiny ? 'shiny/' : ''}${id}.gif`
 
+export const pixelUrl = (id: number, shiny = false) =>
+  `${SPRITES}/${shiny ? 'shiny/' : ''}${id}.png`
+
 export const cryUrl = (id: number) => `${CRIES}/${id}.ogg`
 
 /**
@@ -21,10 +24,33 @@ export const cryUrl = (id: number) => `${CRIES}/${id}.ogg`
  * derrière. Le jeu « Showdown » en fournit un animé pour presque tout le
  * dex, mais il manque sur les tout derniers numéros (Pêchaminus, 1025) —
  * d'où le repli, lui complet, sur le sprite pixel.
+ *
+ * Le chromatique ne coûte rien : partout où la version normale existe, la
+ * chromatique existe aussi, sans une exception. Vérifié sur les 1025
+ * espèces (1004 sprites Showdown de dos, 1004 en chromatique) comme sur les
+ * 326 formes (264 et 264).
  */
-export const showdownBackUrl = (id: number) => `${SPRITES}/other/showdown/back/${id}.gif`
+export const showdownBackUrl = (id: number, shiny = false) =>
+  `${SPRITES}/other/showdown/back/${shiny ? 'shiny/' : ''}${id}.gif`
 
-export const pixelBackUrl = (id: number) => `${SPRITES}/back/${id}.png`
+export const pixelBackUrl = (id: number, shiny = false) =>
+  `${SPRITES}/back/${shiny ? 'shiny/' : ''}${id}.png`
+
+/**
+ * Chaîne d'affichage d'une vignette, du plus beau au plus sûr, avec repli
+ * final sur les couleurs normales. Les 219 formes jouables ont toutes au
+ * moins l'une de ces trois images, donc la chaîne aboutit toujours.
+ */
+export const vignetteSources = (id: number, shiny = false) => [
+  ...new Set([
+    artworkUrl(id, shiny),
+    showdownUrl(id, shiny),
+    pixelUrl(id, shiny),
+    artworkUrl(id),
+    showdownUrl(id),
+    pixelUrl(id),
+  ]),
+]
 
 /** Sprite JSON renvoyé par PokéAPI (structure identique à celle du REST). */
 type RawSprites = {

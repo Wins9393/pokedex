@@ -23,10 +23,31 @@ export type MoveSlot = {
   maxPp: number
 }
 
+/**
+ * Ce qu'un joueur retient pour un emplacement d'équipe. La forme et la
+ * couleur se choisissent après le Pokémon, sur l'emplacement lui-même :
+ * verser les 219 formes dans la liste ferait défiler trois Dracaufeu de
+ * suite pour un choix qui ne concerne que 179 espèces.
+ */
+export type Choix = {
+  /** Numéro de Pokédex national. */
+  speciesId: number
+  /** Identifiant de la forme retenue, `null` pour la forme par défaut. */
+  formId: number | null
+  shiny: boolean
+}
+
 /** Un Pokémon prêt à combattre, avec ses stats déjà calculées au niveau 50. */
 export type Battler = {
-  /** Numéro de Pokédex — sert aussi à retrouver les sprites. */
-  id: number
+  /** Numéro de Pokédex national : l'identité de l'espèce, pour l'affichage. */
+  dexId: number
+  /**
+   * Identifiant du Pokémon-forme — 150 pour Mewtwo, 10043 pour Méga-Mewtwo X.
+   * C'est lui qui adresse les sprites, et lui seul : afficher `dexId` sous
+   * une Méga donnerait « n° 10043 » au lieu du numéro de l'espèce.
+   */
+  spriteId: number
+  shiny: boolean
   name: string
   types: TypeName[]
   /** Statistiques de combat au niveau 50, pas les statistiques de base. */

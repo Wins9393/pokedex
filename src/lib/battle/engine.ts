@@ -1,4 +1,4 @@
-import type { Move, PokemonSummary } from '@/api/models'
+import type { BattleForm, Move, PokemonSummary } from '@/api/models'
 import type { TypeChart } from '@/lib/type-chart'
 import { resoudreFrappe } from './damage'
 import { choisirAttaques, LUTTE } from './moveset'
@@ -11,21 +11,35 @@ import type { Action, BattleEvent, BattleState, Battler, Side, Team } from './ty
  * Construction
  * ------------------------------------------------------------------ */
 
+/**
+ * Monte un combattant. La forme, quand il y en a une, ne fait que se
+ * substituer à l'espèce comme source de types, de statistiques et de
+ * sprites : rien d'autre dans le moteur ne sait qu'elle existe.
+ *
+ * Les capacités, elles, sont fournies par l'appelant — voir `apprises` dans
+ * `BattlePage`, qui réunit le vivier de l'espèce et celui de la forme.
+ */
 export function creerBattler(
   summary: PokemonSummary,
+  forme: BattleForm | null,
+  shiny: boolean,
   apprises: readonly number[],
   parId: ReadonlyMap<number, Move>,
 ): Battler {
-  const stats = statsDeCombat(summary.stats)
+  const types = forme?.types ?? summary.types
+  const base = forme?.stats ?? summary.stats
+  const stats = statsDeCombat(base)
 
   return {
-    id: summary.id,
-    name: summary.name,
-    types: summary.types,
+    dexId: summary.id,
+    spriteId: forme?.id ?? summary.id,
+    shiny,
+    name: forme?.name ?? summary.name,
+    types,
     stats,
     hp: stats.hp,
     maxHp: stats.hp,
-    moves: choisirAttaques(summary.types, summary.stats, apprises, parId),
+    moves: choisirAttaques(types, base, apprises, parId),
   }
 }
 
