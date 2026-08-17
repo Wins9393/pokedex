@@ -20,7 +20,7 @@ import { FORMS_QUERY_KEY } from '@/hooks/use-forms'
 import { MOVES_QUERY_KEY, movesetsKey } from '@/hooks/use-moves'
 import { INDEX_QUERY_KEY } from '@/hooks/use-pokedex'
 import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
-import { artworkUrl, showdownUrl } from '@/lib/sprites'
+import { artworkUrl, pixelBackUrl, pixelUrl, showdownUrl } from '@/lib/sprites'
 
 /** Nom du cache déclaré dans la règle Workbox de `vite.config.ts`. */
 const CACHE_SPRITES = 'pokemon-sprites'
@@ -313,9 +313,28 @@ export function useOfflineDownload(ids: number[]) {
     const idsManquants = ids.filter(
       (id) => client.getQueryData(['pokedex', 'detail', id]) === undefined,
     )
+    /*
+     * Les sprites pixel, de face **et de dos**, coûtent presque rien et
+     * sauvent le mode combat hors ligne.
+     *
+     * Sans eux, la chaîne de dos échouait à chaque palier et retombait sur
+     * l'illustration : tous les Pokémon du joueur s'affichaient de face,
+     * dans l'emplacement défini par le fait qu'on les y voit de dos.
+     *
+     * Ce sont les versions pixel qui sont préchargées, pas les animées : à
+     * 1,1 Ko pièce, les 1244 dos tiennent dans un mégaoctet, contre 93 pour
+     * leurs équivalents Showdown — 37 % de plus sur un téléchargement qui
+     * pèse déjà 250 Mo. Hors ligne, le Pokémon du joueur est donc net et
+     * immobile plutôt qu'animé, mais il est vu du bon côté.
+     */
     const urlsManquantes = serviceWorkerActif()
       ? [...ids, ...idsFormes]
-          .flatMap((id) => [artworkUrl(id), showdownUrl(id)])
+          .flatMap((id) => [
+            artworkUrl(id),
+            showdownUrl(id),
+            pixelUrl(id),
+            pixelBackUrl(id),
+          ])
           .filter((url) => !dejaLa.has(url))
       : []
 

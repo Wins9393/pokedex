@@ -215,6 +215,16 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   sprite animé. Elles se téléchargent quand même, mais seul le compte des illustrations d'espèces —
   1025 sur 1025 — décide de la complétude. Le chromatique, lui, n'est **pas** préchargé : ce serait
   doubler le volume pour du décoratif, et l'arène retombe d'elle-même sur les couleurs normales.
+- **Un mode ajouté après le téléchargement hors ligne n'hérite pas de ses images.** Le
+  préchargement datait d'avant le mode combat et ne connaissait que l'illustration et le sprite
+  animé de face. En mode avion, la chaîne de dos échouait donc à chaque palier et retombait sur
+  l'illustration : les 1244 combattants s'affichaient de face dans l'emplacement du joueur. Les
+  sprites pixel, de face et de dos, sont désormais préchargés eux aussi.
+- **C'est la version pixel qui est préchargée, pas l'animée.** Mesuré : un dos animé pèse 79 Ko,
+  un dos pixel 1,1 Ko. Les 1244 dos animés représenteraient **93 Mo**, soit 37 % de plus sur un
+  téléchargement qui pèse déjà 250 Mo d'images ; les dos pixel tiennent dans **un mégaoctet**, à
+  0,4 %. Hors ligne, le Pokémon du joueur est donc net et immobile plutôt qu'animé — mais il est vu
+  du bon côté, ce qui est le point.
 - **Un blocage d'API ne doit pas emporter les images.** Elles viennent d'un CDN qui n'a rien à voir
   avec PokéAPI : le blocage est donc propre à chaque phase, et les sprites se téléchargent même si
   l'API vient de couper.
