@@ -6,7 +6,7 @@ import { HealthBar } from './HealthBar'
 import { NIVEAU } from '@/lib/battle/types'
 import type { Battler, Side, Team } from '@/lib/battle/types'
 import { typeGradient } from '@/lib/pokemon-types'
-import { artworkUrl, pixelBackUrl, showdownBackUrl, showdownUrl } from '@/lib/sprites'
+import { estUnRendu, spritesDeDos, spritesDeFace } from '@/lib/sprites'
 
 /**
  * Le sprite Showdown animé manque sur les tout derniers numéros du dex, et
@@ -26,29 +26,17 @@ function CombatSprite({
   const reduit = useReducedMotion()
 
   const { spriteId: id, shiny } = battler
-
-  /*
-   * Le dernier repli est toujours en couleurs normales : une forme sans
-   * sprite chromatique doit rester visible plutôt que de laisser un cadre
-   * vide, et hors ligne le chromatique n'est pas préchargé.
-   */
-  const sources = [
-    ...new Set(
-      dos
-        ? [showdownBackUrl(id, shiny), pixelBackUrl(id, shiny), showdownBackUrl(id), pixelBackUrl(id)]
-        : [showdownUrl(id, shiny), artworkUrl(id, shiny), showdownUrl(id), artworkUrl(id)],
-    ),
-  ]
+  const sources = dos ? spritesDeDos(id, shiny) : spritesDeFace(id, shiny)
   const index = Math.min(etape, sources.length - 1)
 
   /*
    * Les sprites du jeu sont du pixel art, et minuscules : la face de
    * Bulbizarre fait 45 × 49 px pour un cadre cinq fois plus grand. Les
    * agrandir en lissant les rend flous ; en pixels nets, c'est le rendu
-   * d'origine. Seule l'illustration officielle, qui est un rendu haute
-   * définition, doit rester lissée.
+   * d'origine. Seuls les rendus haute définition — illustration officielle
+   * et HOME — restent lissés.
    */
-  const pixelise = !sources[index].includes('official-artwork')
+  const pixelise = !estUnRendu(sources[index])
 
   return (
     <motion.img

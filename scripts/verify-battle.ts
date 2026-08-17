@@ -15,7 +15,8 @@ import { normalizeBattleForms, normalizeIndex, normalizeMoves, normalizeMovesets
 import { FORMS_QUERY, INDEX_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
 import { buildTypeChart } from '@/lib/type-chart'
 import { statsDeCombat } from '@/lib/battle/stats'
-import { formesJouables } from '@/lib/battle/forms'
+import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
+import { estUnRendu, spritesDeDos } from '@/lib/sprites'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
 import { resoudreFrappe } from '@/lib/battle/damage'
 import { creerBattler, creerCombat, resoudreTour, actif } from '@/lib/battle/engine'
@@ -62,17 +63,40 @@ const SUJETS_QUERY = `
   }
 `
 
+/*
+ * Disponibilité des sprites, pour vérifier qu'aucun combattant ne finit sur
+ * un cadre vide.
+ *
+ * `sprites(path: …)` projette dans le JSON côté serveur : on récupère quatre
+ * URLs par Pokémon au lieu du blob de cinq kilooctets, soit ~300 Ko pour les
+ * 1244 combattants contre plus de dix mégaoctets.
+ */
+const SPRITES_QUERY = `
+  query Sprites {
+    pokemon(where: { _or: [{ id: { _lte: 1025 } }, { is_default: { _eq: false } }] }) {
+      id
+      sprites: pokemonsprites {
+        showdownDos: sprites(path: "other.showdown.back_default")
+        pixelDos: sprites(path: "back_default")
+        artwork: sprites(path: "other.official-artwork.front_default")
+        home: sprites(path: "other.home.front_default")
+      }
+    }
+  }
+`
+
 async function donnees() {
   if (existsSync(CACHE)) return JSON.parse(readFileSync(CACHE, 'utf8'))
-  const [sujets, moves, movesets, formes, index, movesetsFormes] = await Promise.all([
+  const [sujets, moves, movesets, formes, index, movesetsFormes, sprites] = await Promise.all([
     gql(SUJETS_QUERY, { ids: IDS }),
     gql(MOVES_QUERY),
     gql(MOVESETS_QUERY, { ids: IDS }),
     gql(FORMS_QUERY),
     gql(INDEX_QUERY),
     gql(MOVESETS_QUERY, { ids: IDS_FORMES }),
+    gql(SPRITES_QUERY),
   ])
-  const payload = { sujets, moves, movesets, formes, index, movesetsFormes }
+  const payload = { sujets, moves, movesets, formes, index, movesetsFormes, sprites }
   mkdirSync(dirname(CACHE), { recursive: true })
   writeFileSync(CACHE, JSON.stringify(payload))
   return payload
@@ -382,7 +406,72 @@ console.log('\nFormes alternatives')
   }
 }
 
-/* 8. Combat complet -------------------------------------------------- */
+/* 8. Aucun combattant sans image -------------------------------------- */
+console.log('\nDisponibilité des sprites de combat')
+{
+  type Dispo = {
+    id: number
+    sprites: {
+      showdownDos: string | null
+      pixelDos: string | null
+      artwork: string | null
+      home: string | null
+    }[]
+  }
+
+  const toutes = normalizeBattleForms(brut.formes)
+  const dex = normalizeIndex(brut.index).pokemon
+  const jouables = formesJouables(toutes, new Map(dex.map((p) => [p.id, p])))
+  const combattants = new Set([...dex.map((p) => p.id), ...idsDesFormes(jouables)])
+
+  const parId = new Map<number, Dispo['sprites'][number]>()
+  for (const entree of brut.sprites.pokemon as Dispo[]) {
+    if (entree.sprites[0]) parId.set(entree.id, entree.sprites[0])
+  }
+
+  const manquants: number[] = []
+  const sansSpriteDeJeu: number[] = []
+
+  for (const id of combattants) {
+    const s = parId.get(id)
+    if (!s) continue
+    if (!s.showdownDos && !s.pixelDos) sansSpriteDeJeu.push(id)
+    if (!s.showdownDos && !s.pixelDos && !s.artwork && !s.home) manquants.push(id)
+  }
+
+  ok(
+    `les ${combattants.size} combattants sont tous connus de l’API`,
+    [...combattants].every((id) => parId.has(id)),
+  )
+  ok(
+    'aucun ne se retrouve sans aucune image',
+    manquants.length === 0,
+    manquants.length ? `manquants : ${manquants}` : 'la chaîne aboutit toujours',
+  )
+
+  /*
+   * Le repli de dernier recours n'est pas hypothétique : il existe un cas
+   * réel, et ce contrôle avertira si PokéAPI en ajoute d'autres.
+   */
+  const nomDe = (id: number) =>
+    [...jouables.values()].flat().find((f) => f.id === id)?.name ?? `n° ${id}`
+  ok(
+    'un seul combattant tombe sur un rendu de face',
+    sansSpriteDeJeu.length === 1 && sansSpriteDeJeu[0] === 10301,
+    sansSpriteDeJeu.map(nomDe).join(', ') || 'aucun',
+  )
+
+  /* Les chaînes de l'interface doivent aboutir sur ce cas précis. */
+  const attendues = spritesDeDos(10301, false)
+  ok(
+    'la chaîne de dos de Méga-Zygarde se termine sur un rendu',
+    estUnRendu(attendues[attendues.length - 1]) &&
+      attendues.some((url) => url === parId.get(10301)?.artwork),
+    attendues[attendues.length - 1].split('/pokemon/')[1],
+  )
+}
+
+/* 9. Combat complet -------------------------------------------------- */
 console.log('\nCombat complet 3 contre 3')
 {
   let etat = creerCombat(

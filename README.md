@@ -138,6 +138,22 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 - **Les sprites animés (jeu « Showdown ») ne couvrent pas tout le dex** : une poignée de Pokémon
   très récents n'en ont pas. La disponibilité est lue dans les données de l'API pour la fiche, et
   gérée par un repli sur l'illustration en cas d'erreur de chargement dans la grille.
+- **Face et dos vont toujours par paire, mais un Pokémon peut n'avoir aucun sprite de jeu.** Sur les
+  1244 combattants — 219 formes jouables et 1025 espèces — pas un seul cas de « face présente, dos
+  absent » à l'intérieur d'une même famille d'images. En revanche **un** combattant n'a ni sprite
+  animé ni sprite pixel, d'aucun côté : Méga-Zygarde, forme de Legends Z-A dont PokéAPI ne connaît
+  que les rendus récents. Les chaînes de l'arène se terminent donc par l'illustration officielle
+  puis le rendu HOME — des images **de face uniquement**, mais dont la réunion couvre les 1244 sans
+  exception. Le Pokémon est alors vu du mauvais angle ; c'est préférable à un cadre vide, et le
+  contrôle correspondant de `verify:battle` avertira si PokéAPI en ajoute d'autres.
+- **Une chaîne de replis doit descendre par paliers symétriques.** La vue de face sautait le sprite
+  pixel pour aller directement à l'illustration : les 61 combattants sans sprite animé
+  apparaissaient donc en pixel art dans le camp du joueur et en illustration lissée dans celui d'en
+  face — le même Pokémon n'avait pas le même rendu selon le côté du terrain. Hors ligne, les deux
+  camps retombent ensemble sur l'illustration, seule image préchargée : la symétrie tient aussi.
+- **`sprites(path: "…")` projette dans le JSON côté serveur.** Vérifier la disponibilité des images
+  des 1244 combattants demandait dix mégaoctets de blobs ; en ne demandant que les quatre chemins
+  utiles, la même vérification tient en ~300 Ko.
 - **Animer la grille coûte moins cher que ne pas l'animer.** Un GIF animé pèse 64 Ko en moyenne
   contre 133 Ko pour une illustration officielle. Comme la grille est virtualisée, seule une
   trentaine de sprites est chargée à la fois. En revanche, il ne faut monter **qu'une seule** des
