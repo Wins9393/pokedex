@@ -513,6 +513,8 @@ console.log('\nRythme du récit d’un tour')
   let ouvertureMuette = 0
   /** Attaques dont les dégâts ne sont pas une étape à part. */
   let degatsColles = 0
+  /** Commentaires annonçant un coup qui n'a pas encore été porté. */
+  let commentaireAvantDegats = 0
 
   for (let partie = 0; partie < 40; partie++) {
     let etat = creerCombat(equipes(), 3000 + partie)
@@ -545,12 +547,27 @@ console.log('\nRythme du récit d’un tour')
       if (events[0] && estMuet(events[0])) ouvertureMuette += 1
 
       events.forEach((event, index) => {
-        if (event.kind !== 'damage') return
-        // Une étape par événement : les dégâts ne partagent jamais leur tape.
-        if (!events.slice(0, index).some((precedent) => !estMuet(precedent))) {
-          degatsOrphelins += 1
+        if (event.kind === 'damage') {
+          // Une étape par événement : les dégâts ne partagent jamais leur tape.
+          if (!events.slice(0, index).some((precedent) => !estMuet(precedent))) {
+            degatsOrphelins += 1
+          }
+          if (estMuet(events[index - 1] ?? event)) degatsColles += 1
+          return
         }
-        if (estMuet(events[index - 1] ?? event)) degatsColles += 1
+
+        if (event.kind !== 'critical' && event.kind !== 'effectiveness') return
+
+        /*
+         * Le commentaire porte sur des dégâts déjà encaissés : en remontant
+         * le récit, on doit rencontrer les dégâts de cette attaque avant
+         * l'annonce de l'attaque suivante.
+         */
+        const precedent = events
+          .slice(0, index)
+          .reverse()
+          .find((e) => e.kind === 'damage' || e.kind === 'move')
+        if (precedent?.kind !== 'damage') commentaireAvantDegats += 1
       })
 
       etat = resultat.etat
@@ -564,6 +581,11 @@ console.log('\nRythme du récit d’un tour')
   )
   ok('deux dégâts ne se suivent jamais', degatsColles === 0, 'une tape par chute de jauge')
   ok('un tour ne s’ouvre jamais sur une étape muette', ouvertureMuette === 0)
+  ok(
+    'critique et efficacité commentent des dégâts déjà encaissés',
+    commentaireAvantDegats === 0,
+    'la jauge tombe, puis on apprend pourquoi',
+  )
   ok(
     'un tour reste court à dérouler',
     pire <= 6,

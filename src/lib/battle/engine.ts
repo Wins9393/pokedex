@@ -180,11 +180,12 @@ export function resoudreTour(
       continue
     }
 
-    if (frappe.critique) events.push({ kind: 'critical' })
-    if (frappe.efficacite !== 1) {
-      events.push({ kind: 'effectiveness', multiplier: frappe.efficacite })
-    }
-
+    /*
+     * Les dégâts avant leur commentaire, comme dans les jeux : on voit la
+     * jauge tomber, puis on apprend pourquoi elle est tombée si bas. Dans
+     * l'autre sens, « Coup critique ! » annonçait un coup qui n'avait pas
+     * encore eu lieu, et la jauge descendait une fois l'explication passée.
+     */
     defenseur.hp = Math.max(0, defenseur.hp - frappe.degats)
     events.push({
       kind: 'damage',
@@ -194,6 +195,11 @@ export function resoudreTour(
       hp: defenseur.hp,
       maxHp: defenseur.maxHp,
     })
+
+    if (frappe.critique) events.push({ kind: 'critical' })
+    if (frappe.efficacite !== 1) {
+      events.push({ kind: 'effectiveness', multiplier: frappe.efficacite })
+    }
 
     if (defenseur.hp === 0) {
       events.push({ kind: 'faint', side: cible, target: defenseur.name })

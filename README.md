@@ -275,10 +275,15 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 - **Une tape doit changer quelque chose de *visible*, pas nécessairement le texte.** Les événements
   muets — les dégâts, dont c'est la barre de vie qui parle — avaient d'abord été groupés avec la
   phrase qui les précède, pour qu'aucune tape ne semble ignorée. Mauvais critère : l'ordre du
-  moteur est `attaque → [critique] → [efficacité] → dégâts`, si bien que les dégâts ne se
+  moteur était alors `attaque → [critique] → [efficacité] → dégâts`, si bien que les dégâts ne se
   détachaient de l'annonce que lorsqu'une ligne d'efficacité s'intercalait. Sur un échange neutre,
   le premier attaquant voyait donc la jauge tomber après une tape et le second sans en donner —
   deux rythmes pour la même action. Chaque événement a désormais son étape.
+- **Un commentaire porte sur un coup déjà encaissé.** L'ordre du moteur est désormais
+  `attaque → dégâts → [critique] → [efficacité] → [K.O.]` : on voit la jauge tomber, puis on
+  apprend pourquoi elle est tombée si bas. Dans l'autre sens, « Coup critique ! » annonçait un coup
+  qui n'avait pas encore eu lieu, et la jauge ne descendait qu'une fois l'explication lue — ce qui
+  retirait au commentaire tout effet de révélation.
 - **Mais on ne tape pas pour *sortir* d'une étape muette.** La séparer de l'annonce lui donne son
   déclencheur ; lui demander en plus une tape pour en sortir en ajoutait une qui ne révélait rien,
   puisque le texte ne change pas. Les étapes muettes s'enchaînent donc seules une fois l'animation
