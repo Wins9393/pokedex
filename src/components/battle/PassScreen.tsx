@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { PokeballIcon } from '@/components/ui/icons'
+import { useTapLock } from '@/hooks/use-tap-lock'
 
 type Props = {
   player: 1 | 2
@@ -24,11 +25,19 @@ type Props = {
 export function PassScreen({ player, detail, onReady }: Props) {
   const reduit = useReducedMotion()
 
+  /*
+   * L'écran arrive juste sous la tape qui vient de clore le tour, et il est
+   * lui-même une cible plein écran : sans ce court verrou, cette tape le
+   * franchirait, et le joueur suivant découvrirait l'arène sans avoir vu
+   * qu'on lui passait la main.
+   */
+  const arme = useTapLock(player)
+
   return (
     <div className="fixed inset-0 z-50 bg-canvas">
       <button
         type="button"
-        onClick={onReady}
+        onClick={() => arme && onReady()}
         autoFocus
         className="flex size-full flex-col items-center justify-center gap-6 px-6 text-center"
       >

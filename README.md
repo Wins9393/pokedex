@@ -72,6 +72,13 @@ permettra, le jour venu, de faire jouer deux téléphones en n'échangeant que l
 L'aléatoire passe par un générateur à graine. Sans lui le moteur serait intestable, et deux
 `Math.random()` indépendants feraient diverger deux écrans dès le deuxième tour.
 
+**Le récit avance à la tape, pas au chronomètre**, comme dans les jeux. Le tour se résolvait en
+quatre secondes environ, ce qui suffit à lire chaque ligne *si on l'attendait* — or le joueur 2
+vient de choisir son attaque et découvre la réponse. Les événements sont donc groupés en
+**répliques** : une phrase et tout ce qui l'accompagne sans rien dire, la chute de la barre de vie
+au premier chef. Mesuré sur 528 tours simulés, un tour compte cinq événements en médiane mais
+seulement **trois répliques** — soit trois tapes, six au pire.
+
 La sélection d'équipe réutilise tout l'appareillage de filtres de la grille — panneau, tiroir, chips,
 tri — à une différence près : ses filtres sont **locaux au lieu de vivre dans l'URL**, sans quoi ceux
 du joueur 1 se transmettraient au joueur 2, qui ouvrirait une liste déjà restreinte sans savoir
@@ -262,6 +269,21 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   venait d'ouvrir « Changer de Pokémon » passait la main à un adversaire dont le tour s'ouvrait sur
   la liste de changement au lieu de ses attaques. Une `key` portant le camp et le Pokémon force le
   remontage.
+- **Une tape qui ne change rien à l'écran passe pour une tape ignorée.** Le récit d'un tour compte
+  des événements muets — les dégâts n'ont pas de phrase, c'est la barre de vie qui parle. En faire
+  des étapes à part imposerait des tapes sans effet visible. Ils sont donc groupés avec la phrase à
+  laquelle ils appartiennent : 1,43 événement par réplique, et chaque tape fait apparaître un texte.
+- **Deux cibles plein écran qui se succèdent, c'est une tape qui traverse.** La surface qui déroule
+  le récit et l'écran de passage occupent tous deux la fenêtre entière : sans précaution, la tape
+  qui révèle la dernière réplique franchit l'écran de passage dans la foulée, et le joueur suivant
+  découvre l'arène sans avoir vu qu'on lui passait la main. Un verrou de 250 ms
+  (`use-tap-lock.ts`), réarmé à chaque réplique et à chaque changement d'écran, absorbe aussi les
+  double-tapes involontaires. Les boutons de fin de combat en bénéficient : ils apparaissent
+  exactement sous le doigt qui vient de dérouler la dernière ligne.
+- **La surface de progression reste montée sous l'écran de passage** plutôt que d'être retirée : la
+  démonter rendrait les tapes au contenu qu'elle protège. Le clavier, lui, l'atteint encore — d'où
+  la garde sur `passage` dans `avancerReplique`, sans quoi une barre d'espace de trop reposerait un
+  écran de passage déjà en place.
 - **Un écran qui masque ne doit pas apparaître en fondu.** L'écran de passage entre les deux joueurs
   était monté avec une transition d'opacité : le temps qu'elle se joue, le choix à cacher restait
   lisible par transparence — et si les images s'interrompent, le voile peut ne jamais devenir

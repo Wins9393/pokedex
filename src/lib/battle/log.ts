@@ -31,21 +31,27 @@ export function texteEvenement(event: BattleEvent): string | null {
 }
 
 /**
- * Durée d'affichage d'un événement. Les dégâts tiennent l'écran un peu
- * plus longtemps que le reste : c'est le moment où la barre de vie
- * s'anime, et l'enchaîner trop vite rend le combat illisible.
+ * Découpe le récit d'un tour en **répliques** : une phrase, suivie de tout
+ * ce qui l'accompagne sans rien dire — la chute de la barre de vie, pour
+ * l'essentiel.
+ *
+ * C'est l'unité que le joueur fait avancer d'une tape, et le groupement
+ * n'est pas cosmétique : une tape qui ne changerait aucun mot à l'écran
+ * passerait pour une tape ignorée. Sur 528 tours simulés, un tour compte
+ * cinq événements en médiane mais seulement **trois répliques**.
+ *
+ * Un événement muet qui n'en suit aucun autre forme sa propre réplique
+ * plutôt que d'être perdu — cas qui ne se produit pas aujourd'hui, les
+ * dégâts suivant toujours une attaque, mais qui ne coûte rien à couvrir.
  */
-export function dureeEvenement(event: BattleEvent): number {
-  switch (event.kind) {
-    case 'damage':
-      return 700
-    case 'critical':
-    case 'effectiveness':
-      return 750
-    case 'faint':
-    case 'win':
-      return 1100
-    default:
-      return 900
+export function grouperEnRepliques(events: readonly BattleEvent[]): BattleEvent[][] {
+  const repliques: BattleEvent[][] = []
+
+  for (const event of events) {
+    const courante = repliques[repliques.length - 1]
+    if (texteEvenement(event) !== null || !courante) repliques.push([event])
+    else courante.push(event)
   }
+
+  return repliques
 }

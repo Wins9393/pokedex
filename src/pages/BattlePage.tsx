@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { Link } from 'react-router'
 import { ActionPanel, ListeRemplacants } from '@/components/battle/ActionPanel'
 import { BattleArena } from '@/components/battle/BattleArena'
@@ -11,6 +11,7 @@ import { ArrowLeftIcon, PokeballIcon } from '@/components/ui/icons'
 import { useBattleForms } from '@/hooks/use-forms'
 import { useMoves, useMovesets } from '@/hooks/use-moves'
 import { usePokedex } from '@/hooks/use-pokedex'
+import { useTapLock } from '@/hooks/use-tap-lock'
 import {
   actif,
   creerBattler,
@@ -20,7 +21,7 @@ import {
   remplacantsDisponibles,
   resoudreTour,
 } from '@/lib/battle/engine'
-import { dureeEvenement, texteEvenement } from '@/lib/battle/log'
+import { grouperEnRepliques, texteEvenement } from '@/lib/battle/log'
 import { graineAleatoire } from '@/lib/battle/rng'
 import type { Action, BattleEvent, BattleState, Choix, Side, Team } from '@/lib/battle/types'
 import type { TypeChart } from '@/lib/type-chart'
@@ -102,7 +103,13 @@ export function BattlePage() {
   const [passage, setPassage] = useState<Passage | null>(null)
 
   const [enAttente, setEnAttente] = useState<Action | null>(null)
-  const [evenements, setEvenements] = useState<BattleEvent[]>([])
+  /**
+   * Le tour découpé en répliques, et celle à l'écran. Le rejeu n'avance
+   * plus au chronomètre mais à la tape : le joueur 2 vient de choisir son
+   * attaque et ne s'attendait pas à la réponse, il lui faut le temps de la
+   * lire.
+   */
+  const [repliques, setRepliques] = useState<BattleEvent[][]>([])
   const [curseur, setCurseur] = useState(0)
   const [message, setMessage] = useState<string | null>(null)
   const [impact, setImpact] = useState<Side | null>(null)
@@ -177,31 +184,47 @@ export function BattlePage() {
     setPassage({ vers: 1, ecran: { kind: 'choix', side: 0 } })
   }, [])
 
-  /* --- Rejeu des événements ----------------------------------------- */
+  /* --- Rejeu des répliques, au rythme du joueur --------------------- */
   useEffect(() => {
-    if (ecran.kind !== 'replay' || !etat) return
+    if (ecran.kind !== 'replay') return
 
-    if (curseur >= evenements.length) {
-      // Resynchronisation complète : le rejeu ne reconstitue que les PV et
-      // les changements, pas les PP consommés.
-      setAffiche(etat)
-      setImpact(null)
-      enchainer(etat)
+    const replique = repliques[curseur]
+    if (!replique) return
+
+    const texte = replique.map(texteEvenement).find((valeur) => valeur !== null)
+    if (texte) setMessage(texte)
+
+    // Les événements muets de la réplique — la chute des PV — sont appliqués
+    // avec la phrase à laquelle ils appartiennent, et non à une tape à part.
+    setAffiche((precedent) =>
+      precedent ? replique.reduce(appliquer, precedent) : precedent,
+    )
+
+    const degats = replique.find((event) => event.kind === 'damage')
+    setImpact(degats ? ((1 - degats.side) as Side) : null)
+  }, [ecran, curseur, repliques])
+
+  /** Une tape fait avancer d'une réplique, et clôt le rejeu à la dernière. */
+  const avancerReplique = useCallback(() => {
+    /*
+     * La surface reste montée sous l'écran de passage, qui la recouvre
+     * entièrement. Un doigt ne peut donc plus l'atteindre — mais le clavier,
+     * lui, le peut : sans cette garde, une barre d'espace de trop reposerait
+     * l'écran de passage déjà en place.
+     */
+    if (!etat || passage) return
+
+    if (curseur + 1 < repliques.length) {
+      setCurseur((valeur) => valeur + 1)
       return
     }
 
-    const event = evenements[curseur]
-    const texte = texteEvenement(event)
-    if (texte) setMessage(texte)
-    setAffiche((precedent) => (precedent ? appliquer(precedent, event) : precedent))
-    setImpact(event.kind === 'damage' ? ((1 - event.side) as Side) : null)
-
-    const minuteur = window.setTimeout(
-      () => setCurseur((valeur) => valeur + 1),
-      dureeEvenement(event),
-    )
-    return () => window.clearTimeout(minuteur)
-  }, [ecran, curseur, evenements, etat, enchainer])
+    // Resynchronisation complète : le rejeu ne reconstitue que les PV et
+    // les changements, pas les PP consommés.
+    setAffiche(etat)
+    setImpact(null)
+    enchainer(etat)
+  }, [curseur, repliques.length, etat, passage, enchainer])
 
   /* --- Actions ------------------------------------------------------- */
   const choisirEquipe = (choisis: Choix[]) => {
@@ -231,7 +254,7 @@ export function BattlePage() {
 
     setAffiche(etat)
     setEtat(resultat.etat)
-    setEvenements(resultat.events)
+    setRepliques(grouperEnRepliques(resultat.events))
     setCurseur(0)
     setEnAttente(null)
     setEcran({ kind: 'replay' })
@@ -252,7 +275,7 @@ export function BattlePage() {
   const rejouer = (memesEquipes: boolean) => {
     setEtat(null)
     setAffiche(null)
-    setEvenements([])
+    setRepliques([])
     setCurseur(0)
     setMessage(null)
     setImpact(null)
@@ -340,6 +363,8 @@ export function BattlePage() {
               chart={chart}
               message={message}
               impact={impact}
+              curseur={curseur}
+              onAvancer={avancerReplique}
               onAction={choisirAction}
               onRemplacer={choisirRemplacant}
               onRejouer={rejouer}
@@ -389,6 +414,9 @@ type CombatProps = {
   chart: TypeChart | undefined
   message: string | null
   impact: Side | null
+  /** Réplique à l'écran : réarme le verrou à chaque avancée. */
+  curseur: number
+  onAvancer: () => void
   onAction: (action: Action) => void
   onRemplacer: (index: number) => void
   onRejouer: (memesEquipes: boolean) => void
@@ -401,10 +429,22 @@ function Combat({
   chart,
   message,
   impact,
+  curseur,
+  onAvancer,
   onAction,
   onRemplacer,
   onRejouer,
 }: CombatProps) {
+  const reduit = useReducedMotion()
+  const enRejeu = ecran.kind === 'replay'
+
+  /*
+   * Un seul verrou pour les deux cibles que la tape précédente peut
+   * atteindre : la surface de progression, réarmée à chaque réplique, et
+   * les boutons de fin de combat, qui apparaissent exactement sous le doigt
+   * du joueur qui vient de dérouler la dernière ligne.
+   */
+  const arme = useTapLock(`${ecran.kind}-${curseur}`)
   /*
    * Chaque joueur voit son propre Pokémon de dos, en bas. Pendant le rejeu
    * et à la fin, on garde la vue du joueur 1 : les deux regardent l'écran
@@ -433,16 +473,29 @@ function Combat({
         précédent alors que le combat, lui, avance. Le remplacement est donc
         immédiat, et seule l'apparition est animée.
       */}
-      <div className="mt-4 min-h-[3.25rem] rounded-2xl border border-line bg-panel-soft px-4 py-3">
+      <div className="mt-4 flex min-h-[3.25rem] items-center gap-3 rounded-2xl border border-line bg-panel-soft px-4 py-3">
         <motion.p
           key={message ?? 'vide'}
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.16 }}
-          className="font-semibold text-ink"
+          className="flex-1 font-semibold text-ink"
         >
           {message ?? 'Le combat commence !'}
         </motion.p>
+
+        {/* Le chevron des jeux : sans repère visible, on ne sait pas si
+            l'écran attend une tape ou s'il s'est figé. */}
+        {enRejeu && (
+          <motion.span
+            aria-hidden="true"
+            animate={reduit ? undefined : { opacity: [1, 0.25, 1], y: [0, 3, 0] }}
+            transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+            className="shrink-0 text-accent text-sm"
+          >
+            ▼
+          </motion.span>
+        )}
       </div>
 
       <div className="mt-4">
@@ -484,14 +537,14 @@ function Combat({
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
               <button
                 type="button"
-                onClick={() => onRejouer(true)}
+                onClick={() => arme && onRejouer(true)}
                 className="rounded-full bg-accent px-5 py-2.5 font-bold text-white"
               >
                 Revanche
               </button>
               <button
                 type="button"
-                onClick={() => onRejouer(false)}
+                onClick={() => arme && onRejouer(false)}
                 className="rounded-full border border-line bg-panel-soft px-5 py-2.5 font-bold text-ink-soft transition hover:text-ink"
               >
                 Nouvelles équipes
@@ -500,10 +553,32 @@ function Combat({
           </div>
         )}
 
-        {ecran.kind === 'replay' && (
-          <p className="text-center text-ink-faint text-sm">Résolution du tour…</p>
+        {enRejeu && (
+          <p className="text-center text-ink-faint text-sm">
+            Touche l’écran pour continuer
+          </p>
         )}
       </div>
+
+      {/*
+        Surface de progression, par-dessus toute la scène : sur un téléphone
+        que deux joueurs se passent, taper n'importe où vaut mieux que viser
+        une cible. Elle est sous l'écran de passage (`z-50`), qui doit
+        continuer de tout masquer.
+
+        Elle reste montée pendant son verrou plutôt que d'être retirée : la
+        démonter rendrait les tapes au contenu qu'elle protège, ce qui est
+        exactement ce qu'on veut empêcher.
+      */}
+      {enRejeu && (
+        <button
+          type="button"
+          autoFocus
+          onClick={() => arme && onAvancer()}
+          aria-label="Continuer le tour"
+          className="fixed inset-0 z-30 cursor-default"
+        />
+      )}
     </div>
   )
 }

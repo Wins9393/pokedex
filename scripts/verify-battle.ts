@@ -17,6 +17,7 @@ import { buildTypeChart } from '@/lib/type-chart'
 import { statsDeCombat } from '@/lib/battle/stats'
 import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
 import { estUnRendu, spritesDeDos } from '@/lib/sprites'
+import { grouperEnRepliques, texteEvenement } from '@/lib/battle/log'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
 import { resoudreFrappe } from '@/lib/battle/damage'
 import { creerBattler, creerCombat, resoudreTour, actif } from '@/lib/battle/engine'
@@ -494,7 +495,66 @@ console.log('\nDisponibilité des sprites de combat')
   )
 }
 
-/* 9. Combat complet -------------------------------------------------- */
+/* 9. Découpage du récit en répliques ---------------------------------- */
+console.log('\nDécoupage d’un tour en répliques')
+{
+  const equipes = (): [ReturnType<typeof battler>[], ReturnType<typeof battler>[]] => [
+    [battler(6), battler(25), battler(143)],
+    [battler(3), battler(111), battler(65)],
+  ]
+
+  let evenements = 0
+  let repliques = 0
+  let pire = 0
+  let sansTexte = 0
+  let perdus = 0
+
+  for (let partie = 0; partie < 40; partie++) {
+    let etat = creerCombat(equipes(), 3000 + partie)
+    const rng = createRng(partie + 1)
+
+    for (let tour = 0; tour < 12 && etat.winner === null; tour++) {
+      for (const side of [0, 1] as const) {
+        if (actif(etat, side).hp <= 0) {
+          const suivant = etat.teams[side].battlers.findIndex((b) => b.hp > 0)
+          if (suivant >= 0) etat.teams[side].active = suivant
+        }
+      }
+      if (etat.teams.some((t) => t.battlers.every((b) => b.hp <= 0))) break
+
+      const choix = ([0, 1] as const).map((side) => ({
+        kind: 'move' as const,
+        slot: Math.floor(rng() * actif(etat, side).moves.length),
+      })) as [never, never]
+
+      const resultat = resoudreTour(etat, choix, chart)
+      const groupes = grouperEnRepliques(resultat.events)
+
+      evenements += resultat.events.length
+      repliques += groupes.length
+      pire = Math.max(pire, groupes.length)
+      perdus += resultat.events.length - groupes.flat().length
+      sansTexte += groupes.filter((g) => g.every((e) => texteEvenement(e) === null)).length
+
+      etat = resultat.etat
+    }
+  }
+
+  ok('aucun événement perdu au découpage', perdus === 0, `${evenements} événements`)
+  ok(
+    'chaque réplique porte une phrase',
+    sansTexte === 0,
+    'une tape change toujours le texte à l’écran',
+  )
+  ok(
+    'le découpage réduit bien le nombre de tapes',
+    repliques < evenements,
+    `${(evenements / repliques).toFixed(2)} événement(s) par réplique`,
+  )
+  ok('un tour reste court à dérouler', pire <= 8, `${pire} tapes au pire, ${(repliques / 40).toFixed(1)} par partie`)
+}
+
+/* 10. Combat complet -------------------------------------------------- */
 console.log('\nCombat complet 3 contre 3')
 {
   let etat = creerCombat(
