@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { PokemonSummary } from '@/api/models'
 import { RangeSlider } from '@/components/ui/RangeSlider'
-import { ChevronDownIcon } from '@/components/ui/icons'
+import { ChevronDownIcon, HeartIcon } from '@/components/ui/icons'
+import { useFavorites } from '@/hooks/use-favorites'
 import type { FiltersController } from '@/hooks/use-filters'
 import type { Bounds, Category } from '@/lib/filters'
 import { countActiveFilters } from '@/lib/filters'
@@ -45,6 +46,7 @@ function Section({
 
 export function FilterPanel({ controller, bounds, pokemon }: Props) {
   const { filters } = controller
+  const { favorites } = useFavorites()
   const [showStats, setShowStats] = useState(false)
   const activeCount = countActiveFilters(filters)
 
@@ -77,6 +79,38 @@ export function FilterPanel({ controller, bounds, pokemon }: Props) {
           </button>
         )}
       </div>
+
+      {/*
+        Le filtre existait dans le modèle depuis toujours, mais sa seule
+        commande vivait dans l'en-tête — absent du sélecteur d'équipe. Il
+        était donc inatteignable là où il sert le plus : composer une équipe
+        de combat parmi ses favoris.
+      */}
+      <Section title="Favoris">
+        <button
+          type="button"
+          onClick={() => controller.setFavoritesOnly(!filters.favoritesOnly)}
+          disabled={favorites.size === 0}
+          aria-pressed={filters.favoritesOnly}
+          className={`flex w-full items-center justify-between gap-2 rounded-full border px-3 py-2 font-semibold text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            filters.favoritesOnly
+              ? 'border-transparent bg-rose-500 text-white'
+              : 'border-line bg-panel-soft text-ink-soft hover:text-ink'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <HeartIcon className="size-4" filled={filters.favoritesOnly || favorites.size > 0} />
+            Mes favoris uniquement
+          </span>
+          <span className="tabular-nums">{favorites.size}</span>
+        </button>
+
+        {favorites.size === 0 && (
+          <p className="mt-2 text-ink-faint text-xs">
+            Aucun favori pour l'instant — le cœur sur une carte ou une fiche en ajoute.
+          </p>
+        )}
+      </Section>
 
       <Section
         title="Types"

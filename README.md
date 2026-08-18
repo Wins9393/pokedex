@@ -15,9 +15,9 @@ npm run dev
 - **Recherche tolérante** : le nom français, le nom anglais et le numéro fonctionnent, sans
   sensibilité aux accents, avec correspondance approximative (`drcf` → Dracaufeu). Les résultats
   sont classés par pertinence.
-- **Filtres combinables** : types (mode OU / ET), générations, catégories (légendaire, fabuleux,
-  bébé), plages sur chaque statistique, sur le total, sur la taille et le poids, favoris
-  uniquement. Tri sur n'importe quel critère.
+- **Filtres combinables** : favoris, types (mode OU / ET), générations, catégories (légendaire,
+  fabuleux, bébé), plages sur chaque statistique, sur le total, sur la taille et le poids. Tri sur
+  n'importe quel critère — et les mêmes filtres servent à composer une équipe de combat.
 - **État dans l'URL** : toute vue filtrée est partageable et survit à un rechargement.
 - **Fiche détaillée** : descriptions du Pokédex par version, talents (dont le talent caché),
   fiche d'identité, statistiques en barres et en radar, faiblesses calculées, chaîne d'évolution
@@ -216,6 +216,30 @@ Deux absences sont délibérées, et la seconde a failli coûter cher :
 
 `creerBattler` ayant tout aplati — types, statistiques de niveau 50, quatre attaques —, un combat
 repris **ne redemande rien au réseau** : ni les capacités, ni les formes, ni l'index.
+
+#### L'en-tête sur les petits écrans
+
+Mesuré à 320 px : l'en-tête réclamait **364 px pour 286 disponibles**. Il ne débordait pas — il
+passait à trois rangées et montait à **247 px de haut**, un tiers de l'écran, avant même la
+première carte. Et « Combat », réduit à son icône, se lisait comme une croix de fermeture.
+
+Trois décisions, dans cet ordre :
+
+| | Choix | Pourquoi |
+| --- | --- | --- |
+| **Combat** | Fond plein, libellé gardé à toutes les tailles | Seul mode de jeu ; c'est l'action qu'on met en avant, pas un réglage |
+| **Mot-clé « Pokédex »** | Masqué sous `sm` | C'est la centaine de pixels qui manquait, et la Pokéball suffit à dire où l'on est |
+| **Sprites · hors-ligne · thème** | Rangés dans un menu sous `sm` | On les règle une fois ; les sortir d'un menu coûte une tape par usage |
+
+Ce qui sert **en jouant** reste dehors : la recherche, les favoris et leur compte, le combat. Un
+menu qu'il faut ouvrir à chaque action est un menu mal rempli.
+
+Résultat mesuré : **240 px de contenu, en deux rangées, 199 px de haut** à 320 px. Au-delà de `sm`
+les réglages retrouvent leur rangée et le menu s'efface — rien ne change sur grand écran.
+
+Le menu ne fait pas apparaître ses commandes en double : il montre **les mêmes composants**, posés
+à plat avec leur nom. Deux rendus d'un même bouton finiraient par diverger, et l'un des deux
+mentirait sur son état.
 
 ### Pièges rencontrés
 
@@ -448,6 +472,16 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   coup ait touché, mais le nombre de PV et la couleur du palier étaient déduits de la valeur
   d'arrivée : ils annonçaient les dégâts pendant que le projectile était encore en vol. Les PV sont
   donc animés comme une **valeur**, dont la barre, le chiffre et la teinte sont tous dérivés.
+- **Un menu déroulant ne peut pas emprunter le fond du verre dépoli.** `--panel` porte une
+  transparence prévue pour être compensée par un flou d'arrière-plan ; posée sur du contenu sans ce
+  flou, la page se lit à travers le menu.
+- **Et son entrée ne doit pas être un fondu.** Même règle que l'écran de passage : un panneau qui
+  masque doit être opaque dès la première image. Si les images se raréfient — onglet en
+  arrière-plan, `requestAnimationFrame` suspendu — un fondu reste figé à mi-course, ce qui s'est
+  vu ici à `opacity: 0.57`. Seul le glissement est animé : six pixels figés ne gênent personne.
+- **Dans un menu, on vise le mot, pas la pastille.** La ligne entière relaie la tape au bouton
+  qu'elle contient — sauf s'il l'a déjà reçue, sans quoi le réglage basculerait deux fois et
+  reviendrait à son point de départ.
 - **`min-width: auto` défait `max-w-full`.** Le titre de l'écran de passage vit dans un enfant de
   flex en colonne : ce bloc s'élargit à son contenu, et le `max-w-full` du titre se mesure alors sur
   une largeur déjà débordée. Un pseudo large sortait de l'écran sans passer à la ligne — mesuré à

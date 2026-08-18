@@ -248,3 +248,17 @@ export const PencilIcon = ({ className = '' }: IconProps) => (
     <path d="M13.5 6.5l4 4" />
   </svg>
 )
+
+export const MenuIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+  >
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </svg>
+)

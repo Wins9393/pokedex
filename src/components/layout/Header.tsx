@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { SearchBar } from '@/components/filters/SearchBar'
+import { HeaderMenu, LigneMenu } from '@/components/layout/HeaderMenu'
 import { OfflineButton } from '@/components/layout/OfflineButton'
 import {
   HeartIcon,
@@ -12,6 +13,45 @@ import {
 } from '@/components/ui/icons'
 import { useSpriteMode } from '@/hooks/use-sprite-mode'
 import { useTheme } from '@/hooks/use-theme'
+
+function BoutonSprites() {
+  const sprites = useSpriteMode()
+  const libelle = sprites.animated
+    ? 'Afficher les illustrations officielles'
+    : 'Afficher les sprites animés du jeu'
+
+  return (
+    <button
+      type="button"
+      onClick={sprites.toggle}
+      aria-pressed={sprites.animated}
+      title={libelle}
+      aria-label={libelle}
+      className={`grid size-9 shrink-0 place-items-center rounded-full border transition ${
+        sprites.animated
+          ? 'border-transparent bg-accent text-white'
+          : 'border-line bg-panel-soft text-ink-soft hover:text-ink'
+      }`}
+    >
+      <PixelSpriteIcon className="size-4.5" />
+    </button>
+  )
+}
+
+function BoutonTheme() {
+  const { theme, toggle } = useTheme()
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label={theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
+      className="grid size-9 shrink-0 place-items-center rounded-full border border-line bg-panel-soft text-ink-soft transition hover:text-ink"
+    >
+      {theme === 'dark' ? <SunIcon className="size-4.5" /> : <MoonIcon className="size-4.5" />}
+    </button>
+  )
+}
 
 type Props = {
   query: string
@@ -41,28 +81,34 @@ export function Header({
   onToggleFavorites,
   barre,
 }: Props) {
-  const { theme, toggle } = useTheme()
-  const sprites = useSpriteMode()
-
   return (
     <header className="glass sticky top-0 z-40 border-line border-b">
-      <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <PokeballIcon className="size-8 text-accent" />
-          <span className="font-black text-ink text-xl tracking-tight">
+          <PokeballIcon className="size-8 shrink-0 text-accent" />
+          {/*
+            Le mot-clé disparaît sous `sm`, pas l'icône : mesuré à 320 px,
+            l'en-tête réclamait 364 px pour 286 disponibles et retombait sur
+            trois rangées, soit 247 px de haut — un tiers de l'écran. C'est
+            la centaine de pixels du mot qui manquait, et la Pokéball suffit
+            à dire où l'on est.
+          */}
+          <span className="hidden font-black text-ink text-xl tracking-tight sm:inline">
             Poké<span className="text-accent">dex</span>
           </span>
 
-          {/* À gauche, contre le logo : les quatre contrôles de droite
-              forment déjà un groupe dense, et le combat n'est pas un
-              réglage d'affichage mais un autre mode. */}
+          {/*
+            Seul mode de jeu, donc seule action mise en avant : fond plein,
+            et son libellé gardé à toutes les tailles. En icône seule il se
+            lisait comme une croix de fermeture.
+          */}
           <Link
             to="/combat"
             title="Combat à deux sur ce téléphone"
-            className="ml-1 flex items-center gap-1.5 rounded-full border border-line bg-panel-soft px-3 py-1.5 font-semibold text-ink-soft text-sm transition hover:border-accent hover:text-ink"
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 font-bold text-sm text-white shadow-[var(--card-glow)] transition hover:brightness-110"
           >
             <SwordsIcon className="size-4" />
-            <span className="hidden sm:inline">Combat</span>
+            Combat
           </Link>
         </div>
 
@@ -71,12 +117,14 @@ export function Header({
         </div>
 
         <div className="ml-auto flex items-center gap-2 sm:ml-0">
+          {/* Les favoris restent dehors : c'est un filtre qu'on bascule en
+              cours de route, pas un réglage qu'on pose une fois. */}
           <button
             type="button"
             onClick={onToggleFavorites}
             aria-pressed={favoritesOnly}
             title="Afficher uniquement mes favoris"
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-2 font-semibold text-sm transition ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 font-semibold text-sm transition ${
               favoritesOnly
                 ? 'border-transparent bg-rose-500 text-white'
                 : 'border-line bg-panel-soft text-ink-soft hover:text-ink'
@@ -87,39 +135,27 @@ export function Header({
             <span className="sr-only">favoris</span>
           </button>
 
-          <button
-            type="button"
-            onClick={sprites.toggle}
-            aria-pressed={sprites.animated}
-            title={
-              sprites.animated
-                ? 'Afficher les illustrations officielles'
-                : 'Afficher les sprites animés du jeu'
-            }
-            aria-label={
-              sprites.animated
-                ? 'Afficher les illustrations officielles'
-                : 'Afficher les sprites animés du jeu'
-            }
-            className={`grid size-9 place-items-center rounded-full border transition ${
-              sprites.animated
-                ? 'border-transparent bg-accent text-white'
-                : 'border-line bg-panel-soft text-ink-soft hover:text-ink'
-            }`}
-          >
-            <PixelSpriteIcon className="size-4.5" />
-          </button>
+          {/* Au-delà de `sm` la place ne manque plus : les réglages
+              retrouvent leur rangée, et le menu s'efface. */}
+          <div className="hidden items-center gap-2 sm:flex">
+            <BoutonSprites />
+            <OfflineButton />
+            <BoutonTheme />
+          </div>
 
-          <OfflineButton />
-
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label={theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
-            className="grid size-9 place-items-center rounded-full border border-line bg-panel-soft text-ink-soft transition hover:text-ink"
-          >
-            {theme === 'dark' ? <SunIcon className="size-4.5" /> : <MoonIcon className="size-4.5" />}
-          </button>
+          <div className="sm:hidden">
+            <HeaderMenu>
+              <LigneMenu label="Sprites animés">
+                <BoutonSprites />
+              </LigneMenu>
+              <LigneMenu label="Télécharger le dex">
+                <OfflineButton />
+              </LigneMenu>
+              <LigneMenu label="Thème">
+                <BoutonTheme />
+              </LigneMenu>
+            </HeaderMenu>
+          </div>
         </div>
       </div>
 
