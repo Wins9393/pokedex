@@ -177,7 +177,11 @@ export function BattlePage() {
     return [...new Set(ids)]
   }, [equipes, etat])
 
-  const { movesets, isError: movesetsError } = useMovesets(idsEquipes)
+  const {
+    movesets,
+    isError: movesetsError,
+    refetch: rechargerCapacites,
+  } = useMovesets(idsEquipes)
 
   /* --- Construction du combat une fois les capacités reçues --------- */
   useEffect(() => {
@@ -404,6 +408,19 @@ export function BattlePage() {
 
   const enPassage = passage !== null
 
+  /*
+   * Les deux équipes sont composées : la sélection n'a plus lieu d'être,
+   * même si `ecran` la désigne encore — c'est le montage du combat qui le
+   * fera changer, et il attend les capacités.
+   *
+   * Sans ce relais, un joueur 2 qui validait son équipe sans que les
+   * capacités puissent arriver — hors ligne, dex non téléchargé — restait
+   * devant sa grille avec un bouton « Équipe prête » qui ne produisait rien
+   * de visible. L'erreur existait déjà ; elle n'avait simplement nulle part
+   * où s'afficher.
+   */
+  const enPreparation = ecran.kind === 'equipe' && equipes !== null
+
   return (
     <div className="min-h-dvh">
       {enPassage && (
@@ -421,7 +438,7 @@ export function BattlePage() {
       {/* L'écran de passage est monté par-dessus, mais le contenu reste
           rendu dessous : le masquer ici ferait clignoter l'arène au tap. */}
       <div aria-hidden={enPassage}>
-        {ecran.kind === 'equipe' && (
+        {ecran.kind === 'equipe' && !enPreparation && (
           <TeamPicker
             key={ecran.joueur}
             pokemon={pokemon}
@@ -438,13 +455,17 @@ export function BattlePage() {
           masquerait un combat parfaitement jouable derrière un écran de
           chargement définitif.
         */}
-        {ecran.kind !== 'equipe' &&
+        {(ecran.kind !== 'equipe' || enPreparation) &&
           (!affiche || !etat ? (
             <Cadre>
               {movesetsError ? (
                 <ErrorScreen
-                  message="Impossible de charger les attaques des Pokémon choisis."
-                  onRetry={() => window.location.reload()}
+                  message={
+                    navigator.onLine
+                      ? 'Impossible de charger les attaques des Pokémon choisis.'
+                      : "Hors ligne, et les attaques de ces Pokémon ne sont pas dans ce qui a été téléchargé. Télécharge le dex depuis l'accueil, ou reconnecte-toi."
+                  }
+                  onRetry={() => void rechargerCapacites()}
                 />
               ) : (
                 <LoadingScreen label="Préparation du combat…" />

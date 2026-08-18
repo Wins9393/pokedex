@@ -862,5 +862,119 @@ console.log('\nCombat complet 3 contre 3')
   )
 }
 
+/* 14. Ce que le cache de requêtes garde d'une session à l'autre --------- */
+console.log('\nCaches durables')
+{
+  /*
+   * Deux pannes de hors-ligne se sont produites ici, et aucune ne se voyait
+   * en ligne — d'où ce contrôle.
+   *
+   * La première : le téléchargement rangeait les capacités sous la clé de
+   * son lot de soixante, le combat les cherchait sous celle de son sextuor.
+   * Deux clés qui ne se croisent jamais, donc un dex complet et un combat
+   * qui repart quand même au réseau.
+   *
+   * La seconde : les requêtes relues au démarrage reprennent les réglages
+   * du client, pas ceux de l'appel qui les a écrites. Sans préfixe déclaré
+   * durable, le `gcTime` par défaut s'applique et tout ce qui n'est pas
+   * observé disparaît cinq minutes après l'ouverture — la mémoire d'abord,
+   * le disque à la sauvegarde suivante.
+   */
+  const { environmentManager } = await import('@tanstack/query-core')
+  // Le cœur de TanStack Query donne un `gcTime` infini côté serveur : sans
+  // cette bascule, Node ne mesurerait pas ce que vit le navigateur.
+  environmentManager.setIsServer(() => false)
+
+  const { QueryClient, dehydrate, hydrate } = await import('@tanstack/react-query')
+  const { MOVES_QUERY_KEY, capacitesManquantes, chargerMovesets, movesetKey, viviersKey } =
+    await import('@/hooks/use-moves')
+  const { FORMS_QUERY_KEY } = await import('@/hooks/use-forms')
+  const { PREFIXES_DURABLES, estDurable } = await import('@/lib/cache-requetes')
+
+  const clientNeuf = () => {
+    const client = new QueryClient()
+    for (const prefixe of PREFIXES_DURABLES) {
+      client.setQueryDefaults([...prefixe], { staleTime: Infinity, gcTime: Infinity })
+    }
+    return client
+  }
+
+  // Tout ce que le téléchargement dépose doit être déclaré durable.
+  for (const [nom, cle] of [
+    ['la table des attaques', [...MOVES_QUERY_KEY]],
+    ['la table des formes', [...FORMS_QUERY_KEY]],
+    ['la fiche détaillée', ['pokedex', 'detail', 6]],
+    ['le vivier de capacités', [...movesetKey(6)]],
+  ] as const) {
+    ok(`${nom} survit au rechargement`, estDurable(cle), JSON.stringify(cle))
+  }
+
+  ok(
+    "la jointure d'une équipe, elle, ne s'accumule pas",
+    !estDurable([...viviersKey([6, 3])]),
+    'une entrée par équipe jouée serait gardée à vie',
+  )
+
+  // Le téléchargement demande par lots de soixante et range Pokémon par
+  // Pokémon ; le combat, lui, ne connaît que le Pokémon.
+  const client = clientNeuf()
+  for (let id = 1; id <= 60; id++) client.setQueryData([...movesetKey(id)], [33, 45])
+
+  const equipe = [6, 3, 25, 12, 39, 52]
+  ok(
+    'un dex téléchargé laisse le combat monter son équipe sans réseau',
+    capacitesManquantes(client, equipe).length === 0,
+    `${equipe.length} viviers demandés, aucun manquant`,
+  )
+
+  const veritableFetch = globalThis.fetch
+  globalThis.fetch = (() => {
+    throw new Error('aucune requête ne doit partir')
+  }) as typeof fetch
+  const viviers = await chargerMovesets(client, equipe)
+  globalThis.fetch = veritableFetch
+
+  ok(
+    'et les capacités arrivent bien depuis le cache',
+    equipe.every((id) => viviers[id]?.length === 2),
+    `${Object.keys(viviers).length} viviers montés hors ligne`,
+  )
+
+  ok(
+    'un Pokémon absent du téléchargement reste demandé au réseau',
+    capacitesManquantes(client, [999]).length === 1,
+  )
+
+  // Enfin : ce qui a été relu du disque garde-t-il son sursis ?
+  client.setQueryData(['pokedex', 'detail', 6], { id: 6 })
+  client.setQueryData([...MOVES_QUERY_KEY], [{ id: 1 }])
+  client.setQueryData([...FORMS_QUERY_KEY], [{ id: 10043 }])
+
+  const apres = clientNeuf()
+  hydrate(
+    apres,
+    JSON.parse(
+      JSON.stringify(dehydrate(client, { shouldDehydrateQuery: (q) => q.state.status === 'success' })),
+    ),
+  )
+
+  const gcDe = (cle: unknown[]) =>
+    (apres.getQueryCache().find({ queryKey: cle }) as unknown as { gcTime: number } | undefined)
+      ?.gcTime
+
+  const durables = [
+    ['pokedex', 'detail', 6],
+    [...MOVES_QUERY_KEY],
+    [...FORMS_QUERY_KEY],
+    [...movesetKey(6)],
+  ]
+
+  ok(
+    'après un rechargement, rien de tout cela ne se périme',
+    durables.every((cle) => gcDe(cle) === Infinity),
+    durables.map((cle) => `${JSON.stringify(cle)} : ${gcDe(cle)}`).join(', '),
+  )
+}
+
 console.log(echecs === 0 ? '\nTout est vert.\n' : `\n${echecs} vérification(s) en échec.\n`)
 process.exit(echecs === 0 ? 0 : 1)

@@ -357,10 +357,17 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 - **Contre cette limite, ralentir ne suffit pas : il faut demander moins souvent.** Le
   téléchargement intégral émettait une requête par Pokémon, soit plus d'un millier, et se faisait
   couper autour de la deux centième — il plafonnait à 10 %. Toutes les requêtes d'API partent
-  désormais par lots : 52 pour les fiches (vingt à la fois), 22 pour les capacités (soixante,
+  désormais par lots : 52 pour les fiches (vingt à la fois), 21 pour les capacités (soixante,
   espèces et formes confondues), une pour la table d'attaques et une pour celle des formes.
-  **76 requêtes au lieu de 1044**, et le dex entier arrive en une vingtaine de secondes. La cadence
+  **75 requêtes au lieu de 1044**, et le dex entier arrive en une vingtaine de secondes. La cadence
   auto-ajustée reste, mais comme filet plutôt que comme parade.
+- **Le lot est un mode de transport, jamais une clé de stockage.** Les capacités étaient rangées
+  sous la clé de leur lot de soixante ; le combat, lui, demandait celles de ses six Pokémon et
+  cherchait sous la clé de ce sextuor. Deux clés qui ne se rencontrent jamais : le dex était bien
+  téléchargé, et le combat repartait quand même au réseau — là où, hors ligne, il n'y a rien. Rien
+  ne se voyait en ligne, où la requête aboutit. Les viviers sont désormais rangés un par un
+  (`movesetKey`), comme les fiches, et **une seule fonction** (`chargerMovesets`) sert le
+  téléchargement et le combat : ils ne peuvent plus diverger sur la forme des clés.
 - **La table des formes se récupère avant la planification, pas pendant.** C'est elle qui dit
   quelles capacités et quelles images restent à chercher : la compter comme une tâche parmi les
   autres obligerait à publier un total qui changerait en cours de route, sous les yeux de
@@ -386,8 +393,17 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   l'API vient de couper.
 - **Une fiche écrite avec `setQueryData` n'est observée par personne**, donc soumise au `gcTime`
   par défaut : elle disparaîtrait cinq minutes plus tard, avant la prochaine écriture sur disque.
-  D'où le `setQueryDefaults` sur `['pokedex', 'detail']` dans `main.tsx`, qui couvre les fiches
-  réparties par lots en plus de celles demandées à l'unité.
+  D'où les `setQueryDefaults` de `main.tsx`, listés dans `lib/cache-requetes.ts`.
+- **Une requête relue du disque reprend les réglages du client, pas ceux qui l'ont écrite.** C'est
+  le piège dont le précédent n'était qu'un cas particulier, et il a coûté cher : le `gcTime:
+  Infinity` passé à l'appel qui télécharge ne survit pas au rechargement de la page. Table
+  d'attaques, table des formes et capacités repartaient donc avec les cinq minutes par défaut et,
+  faute d'observateur, **disparaissaient cinq minutes après l'ouverture** — de la mémoire d'abord,
+  du disque à la sauvegarde suivante. Seules les fiches survivaient, parce qu'elles étaient les
+  seules déclarées côté client. Le bouton annonçait « Dex complet », l'application redemandait tout
+  à la visite suivante, et le mode combat se retrouvait sans données hors ligne. Ce que le
+  téléchargement écrit doit figurer dans `PREFIXES_DURABLES` ; `verify:battle` recoupe chaque clé
+  stockée avec cette liste.
 - **L'API Resource Timing ment sur les ressources cross-origin.** Sans en-tête
   `Timing-Allow-Origin`, `transferSize` et `decodedBodySize` valent toujours `0` : s'en servir
   pour distinguer une requête réussie d'une requête échouée donne un compte entièrement faux.
@@ -397,6 +413,24 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 - **Les sprites sont servis sans CORS**, donc leurs réponses sont opaques et portent le statut
   `0`. Sans `cacheableResponse: { statuses: [0, 200] }`, Workbox les rejetterait en silence et
   le cache resterait vide.
+- **Une réponse opaque ne dit pas si elle est une image.** C'est le revers du point précédent, et
+  la cause des vignettes définitivement vides après un téléchargement pourtant annoncé complet.
+  Le préchargement demandait ses images en `no-cors` pour imiter une balise `<img>` : un `429` du
+  CDN revenait alors comme une réussite, le service worker le rangeait **à la place du PNG** pour
+  un an, et le compteur d'échecs restait à zéro — donc pas de nouvelle tentative, et pas de
+  ralentissement de la cadence. Mesuré depuis la page : la même URL absente renvoie `404` avec un
+  corps de 14 octets en CORS, et un statut `0` indiscernable d'une image en `no-cors`.
+
+  Le préchargement demande désormais **en CORS** — `raw.githubusercontent.com` répond
+  `access-control-allow-origin: *` — donc le statut est lisible, un refus redevient un échec, et
+  la règle Workbox ne met en cache que le `200`. La réponse déposée sert ensuite les balises
+  `<img>` : seul l'inverse est interdit, une réponse opaque pour une requête CORS.
+- **Une image cassée en cache ne se répare qu'à l'affichage.** Rien ne distingue d'avance une
+  entrée opaque saine d'une entrée empoisonnée : taille, en-têtes et corps sont tous masqués. Le
+  seul juge est donc la balise elle-même. Quand une image échoue, `reparerImage` retire l'entrée du
+  cache et va la rechercher en CORS ; si elle revient, l'affichage reprend, sinon la chaîne de
+  replis suit son cours. Une seule tentative par URL et par session, sans quoi une image réellement
+  absente du CDN — ou un appareil hors ligne — enchaînerait suppression et échec sans fin.
 - **`distinct_on` évite d'avoir à choisir un jeu de référence pour les capacités.** Un Pokémon
   absent d'Écarlate/Violet n'y apprend rien ; interroger un seul `version_group` laisserait donc
   des listes vides. Combiné à `order_by: version_group_id desc`, `distinct_on: move_id` renvoie

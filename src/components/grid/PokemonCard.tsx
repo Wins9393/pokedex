@@ -5,6 +5,7 @@ import type { PokemonSummary } from '@/api/models'
 import { TypeBadge } from '@/components/ui/TypeBadge'
 import { HeartIcon } from '@/components/ui/icons'
 import { useFavorites } from '@/hooks/use-favorites'
+import { useReparationImage } from '@/hooks/use-reparation-image'
 import { useSpriteMode } from '@/hooks/use-sprite-mode'
 import { useTilt } from '@/hooks/use-tilt'
 import { formatDexNumber } from '@/lib/format'
@@ -28,6 +29,13 @@ function PokemonCardBase({ pokemon, to }: Props) {
   const [hovered, setHovered] = useState(false)
   const [requested, setRequested] = useState(false)
   const [animState, setAnimState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  /*
+   * L'illustration n'a aucun repli : c'est le visuel de la carte. Quand
+   * elle échoue, c'est presque toujours parce que le cache en garde un
+   * refus du CDN plutôt que le fichier — la seule issue est de vider
+   * l'entrée et de la redemander.
+   */
+  const { cle, reparer } = useReparationImage()
 
   // En mode animé le sprite est le visuel principal ; en mode illustration
   // il n'est chargé qu'au survol, en aperçu.
@@ -86,10 +94,12 @@ function PokemonCardBase({ pokemon, to }: Props) {
         */}
         {showArtwork && (
           <img
+            key={cle}
             src={artworkUrl(pokemon.id)}
             alt=""
             loading="lazy"
             decoding="async"
+            onError={() => reparer(artworkUrl(pokemon.id), () => {})}
             className={`absolute inset-0 size-full object-contain object-center drop-shadow-[0_10px_14px_rgba(0,0,0,0.35)] transition-[transform,opacity] duration-300 group-hover:scale-105 ${
               showAnimated ? 'opacity-0' : 'opacity-100'
             }`}
@@ -107,7 +117,7 @@ function PokemonCardBase({ pokemon, to }: Props) {
             loading="lazy"
             decoding="async"
             onLoad={() => setAnimState('ready')}
-            onError={() => setAnimState('failed')}
+            onError={() => reparer(showdownUrl(pokemon.id), () => setAnimState('failed'))}
             className={`absolute inset-0 z-[1] size-full object-contain object-center p-[10%] pb-[24%] [image-rendering:pixelated] drop-shadow-[0_8px_10px_rgba(0,0,0,0.45)] transition-opacity duration-200 ${
               showAnimated ? 'opacity-100' : 'opacity-0'
             }`}

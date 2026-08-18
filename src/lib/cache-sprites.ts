@@ -38,3 +38,13 @@ export const PLAFOND_SPRITES = 6000
  * hors d'état d'atteindre.
  */
 export const DUREE_SPRITES = 60 * 60 * 24 * 365
+
+/**
+ * Nom du cache d'images du service worker.
+ *
+ * Déclaré ici parce que trois codes le désignent : la règle Workbox qui
+ * l'alimente, le téléchargement hors ligne qui recense ce qu'il contient, et
+ * la réparation qui en retire les entrées cassées. Une chaîne recopiée trois
+ * fois, c'est trois occasions d'écrire dans un cache que personne ne lit.
+ */
+export const NOM_CACHE_SPRITES = 'pokemon-sprites'

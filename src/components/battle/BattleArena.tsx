@@ -8,6 +8,7 @@ import type { Effet } from './AttackEffect'
 import { HealthBar } from './HealthBar'
 import { ruee } from '@/lib/battle-scene'
 import type { Taille } from '@/lib/battle-scene'
+import { useReparationImage } from '@/hooks/use-reparation-image'
 import { estAuContact } from '@/lib/battle/effects'
 import { NIVEAU } from '@/lib/battle/types'
 import type { Battler, Side, Team } from '@/lib/battle/types'
@@ -62,6 +63,13 @@ function CombatSprite({
 }) {
   const [etape, setEtape] = useState(0)
   const reduit = useReducedMotion()
+  /*
+   * Un sprite peut avoir été mis en cache cassé par un CDN saturé. Sans
+   * cette seconde chance, le combattant se replierait en silence sur une
+   * image moins juste — pixel au lieu d'animé, espèce au lieu de forme —
+   * pour un fichier qui existe et qu'il suffit d'aller rechercher.
+   */
+  const { cle, reparer } = useReparationImage()
 
   const { spriteId: id, dexId, shiny } = battler
   const sources = dos ? spritesDeDos(id, shiny, dexId) : spritesDeFace(id, shiny)
@@ -78,9 +86,10 @@ function CombatSprite({
 
   return (
     <motion.img
+      key={cle}
       src={sources[index]}
       alt=""
-      onError={() => setEtape((valeur) => valeur + 1)}
+      onError={() => reparer(sources[index], () => setEtape((valeur) => valeur + 1))}
       initial={reduit ? false : { opacity: 0, y: dos ? 24 : -24, scale: 0.85 }}
       animate={
         ko

@@ -6,6 +6,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import { del, get, set } from 'idb-keyval'
 import App from './App'
+import { PREFIXES_DURABLES } from './lib/cache-requetes'
 import { markScrollbarKind } from './lib/scrollbars'
 import './styles/index.css'
 
@@ -24,16 +25,19 @@ const queryClient = new QueryClient({
 })
 
 /*
- * Le téléchargement intégral récupère les fiches par lots et les répartit
- * dans le cache avec `setQueryData`, sans qu'aucun composant ne les observe.
- * Sans ce réglage elles hériteraient du `gcTime` par défaut et seraient
- * évincées cinq minutes plus tard — donc avant la prochaine écriture sur
- * disque, et le téléchargement ne laisserait aucune trace.
+ * Le téléchargement intégral récupère fiches et capacités par lots et les
+ * répartit dans le cache avec `setQueryData`, sans qu'aucun composant ne les
+ * observe. Sans ce réglage elles hériteraient du `gcTime` par défaut et
+ * seraient évincées cinq minutes plus tard — donc avant la prochaine
+ * écriture sur disque, et le téléchargement ne laisserait aucune trace.
+ *
+ * Le réglage vit ici, sur le client, et non sur l'appel qui télécharge :
+ * c'est la seule forme qui survive au rechargement, où les requêtes relues
+ * sont reconstruites avec les réglages du client. Voir `cache-requetes.ts`.
  */
-queryClient.setQueryDefaults(['pokedex', 'detail'], {
-  staleTime: Infinity,
-  gcTime: Infinity,
-})
+for (const prefixe of PREFIXES_DURABLES) {
+  queryClient.setQueryDefaults([...prefixe], { staleTime: Infinity, gcTime: Infinity })
+}
 
 /*
  * IndexedDB plutôt que localStorage. Ce dernier plafonne à 5 Mo et ne

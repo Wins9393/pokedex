@@ -26,7 +26,7 @@ import type { Choix } from '@/lib/battle/types'
 import { applyFilters, computeBounds } from '@/lib/filters'
 import { formatDexNumber } from '@/lib/format'
 import { typeGradient } from '@/lib/pokemon-types'
-import { artworkUrl, vignetteSources } from '@/lib/sprites'
+import { vignetteSources } from '@/lib/sprites'
 
 const HAUTEUR_LIGNE = 68
 
@@ -308,10 +308,8 @@ export function TeamPicker({ pokemon, player, formes, onDone }: Props) {
                     }`}
                     style={actif ? { backgroundImage: typeGradient(entry.types, 22) } : undefined}
                   >
-                    <img
-                      src={artworkUrl(entry.id)}
-                      alt=""
-                      loading="lazy"
+                    <FallbackImage
+                      sources={vignetteSources(entry.id)}
                       className="size-12 shrink-0 object-contain"
                     />
 

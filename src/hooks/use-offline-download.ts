@@ -2,28 +2,16 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { gql } from '@/api/client'
-import { DETAIL_QUERY, FORMS_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/queries'
-import {
-  normalizeBattleForms,
-  normalizeDetails,
-  normalizeMoves,
-  normalizeMovesets,
-} from '@/api/normalize'
-import type {
-  RawDetailResponse,
-  RawFormsResponse,
-  RawMovesResponse,
-  RawMovesetsResponse,
-} from '@/api/normalize'
+import { DETAIL_QUERY, FORMS_QUERY, MOVES_QUERY } from '@/api/queries'
+import { normalizeBattleForms, normalizeDetails, normalizeMoves } from '@/api/normalize'
+import type { RawDetailResponse, RawFormsResponse, RawMovesResponse } from '@/api/normalize'
 import type { BattleForm, PokedexIndexData } from '@/api/models'
 import { FORMS_QUERY_KEY } from '@/hooks/use-forms'
-import { MOVES_QUERY_KEY, movesetsKey } from '@/hooks/use-moves'
+import { MOVES_QUERY_KEY, capacitesManquantes, chargerMovesets } from '@/hooks/use-moves'
 import { INDEX_QUERY_KEY } from '@/hooks/use-pokedex'
 import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
+import { NOM_CACHE_SPRITES } from '@/lib/cache-sprites'
 import { artworkUrl, imagesPrechargees } from '@/lib/sprites'
-
-/** Nom du cache déclaré dans la règle Workbox de `vite.config.ts`. */
-const CACHE_SPRITES = 'pokemon-sprites'
 
 /*
  * PokéAPI limite le débit sans le dire : passé environ deux cents requêtes
@@ -31,10 +19,15 @@ const CACHE_SPRITES = 'pokemon-sprites'
  *
  * La parade n'est pas de ralentir mais de **demander moins souvent** : tout
  * ce qui vient de l'API part par lots. Le dex entier tient en 52 requêtes de
- * fiches, 22 de capacités — espèces et formes confondues —, 1 de table
- * d'attaques et 1 de table des formes : 76 en tout, là où la version fiche
- * par fiche en émettait plus d'un millier et se faisait couper autour de la
- * deux centième.
+ * fiches, 21 de capacités — les 1025 espèces et les 219 formes dans les
+ * mêmes lots —, 1 de table d'attaques et 1 de table des formes : 75 en tout,
+ * là où la version fiche par fiche en émettait plus d'un millier et se
+ * faisait couper autour de la deux centième.
+ *
+ * Le lot n'est qu'un mode de transport : chaque réponse est ensuite rangée
+ * fiche par fiche et vivier par vivier, sous la clé que l'affichage ira
+ * lire. Voir `movesetKey` — c'est en gardant les lots comme clés que le
+ * mode combat s'est retrouvé injouable hors ligne.
  */
 const TAILLE_LOT_FICHES = 20
 const TAILLE_LOT_CAPACITES = 60
@@ -61,8 +54,6 @@ const decouper = (ids: readonly number[], taille: number): number[][] => {
   }
   return lots
 }
-
-const lotsDeCapacites = (ids: readonly number[]) => decouper(ids, TAILLE_LOT_CAPACITES)
 
 const enCache = (client: QueryClient, cle: readonly unknown[]) =>
   client.getQueryState([...cle])?.status === 'success'
@@ -103,7 +94,7 @@ const serviceWorkerActif = () => Boolean(navigator.serviceWorker?.controller)
 async function urlsEnCache(): Promise<Set<string>> {
   if (!('caches' in window)) return new Set()
   try {
-    const cache = await caches.open(CACHE_SPRITES)
+    const cache = await caches.open(NOM_CACHE_SPRITES)
     return new Set((await cache.keys()).map((requete) => requete.url))
   } catch {
     return new Set()
@@ -145,35 +136,73 @@ async function mesurer(client: QueryClient, ids: number[]) {
    */
   const images = ids.filter((id) => presentes.has(artworkUrl(id))).length
 
-  // Données du mode combat : table des attaques, table des formes, puis les
-  // capacités par lots — celles des espèces comme celles des formes.
+  /*
+   * Données du mode combat : table des attaques, table des formes, puis un
+   * vivier de capacités par combattant — espèces et formes confondues. Le
+   * compte se fait combattant par combattant, comme le stockage : compter
+   * des lots ne dirait plus rien de ce que le combat saura trouver.
+   */
   const idsFormes = idsFormesEnCache(client)
-  const lots = [
-    ...lotsDeCapacites(ids),
-    ...(idsFormes ? lotsDeCapacites(idsFormes) : []),
-  ]
+  const combattants = idsFormes ? [...ids, ...idsFormes] : null
   const combat =
     (enCache(client, MOVES_QUERY_KEY) ? 1 : 0) +
     (enCache(client, FORMS_QUERY_KEY) ? 1 : 0) +
-    lots.filter((lot) => enCache(client, movesetsKey(lot))).length
+    (combattants ? combattants.length - capacitesManquantes(client, combattants).length : 0)
 
   /*
-   * Sans la table des formes, on ignore combien de lots de capacités il
-   * reste : le compte requis est délibérément inatteignable pour que l'état
-   * ne bascule pas à « complet » sur une ignorance.
+   * Sans la table des formes, on ignore combien de viviers il reste : le
+   * compte requis est délibérément inatteignable pour que l'état ne bascule
+   * pas à « complet » sur une ignorance.
    */
-  const combatRequis = idsFormes ? lots.length + 2 : Number.POSITIVE_INFINITY
+  const combatRequis = combattants ? combattants.length + 2 : Number.POSITIVE_INFINITY
 
   return { fiches, images, combat, combatRequis }
 }
 
+/** Vrai si le service worker a déjà cette image, quelle qu'en soit la forme. */
+async function dansLeCache(url: string) {
+  if (!('caches' in window)) return false
+  try {
+    const cache = await caches.open(NOM_CACHE_SPRITES)
+    // `ignoreVary` : la requête construite ici n'a pas les en-têtes qu'une
+    // balise `<img>` envoie, et le CDN fait varier ses réponses dessus.
+    return Boolean(await cache.match(url, { ignoreVary: true }))
+  } catch {
+    return false
+  }
+}
+
 /**
- * Reproduit exactement la requête d'une balise `<img>` : même URL, même
- * mode sans CORS, donc même clé de cache. Une image préchargée autrement
- * serait stockée sans jamais être réutilisée à l'affichage.
+ * Précharge une image **et vérifie ce qui revient**.
+ *
+ * Le préchargement se faisait en `no-cors`, pour imiter la requête d'une
+ * balise `<img>`. Mais une réponse opaque ne dit rien : son statut est 0,
+ * qu'elle porte un PNG ou le 429 que le CDN renvoie quand on le sollicite
+ * trop vite. Le service worker rangeait donc le refus dans le cache
+ * d'images, pour un an, et le téléchargement le comptait comme une
+ * réussite — d'où des vignettes définitivement vides après un
+ * téléchargement annoncé complet, sans un seul échec au compteur.
+ *
+ * En CORS — que `raw.githubusercontent.com` autorise, `access-control-
+ * allow-origin: *` — le statut redevient lisible. Un 429 devient un échec :
+ * il est retenté, il ralentit la cadence, et la règle Workbox ne le met pas
+ * en cache. La réponse déposée sert ensuite les balises `<img>`, qui n'ont
+ * pas besoin d'être en CORS pour la lire.
  */
-const precharger = (url: string, signal: AbortSignal) =>
-  fetch(url, { mode: 'no-cors', signal }).then(() => undefined)
+async function precharger(url: string, signal: AbortSignal) {
+  try {
+    const reponse = await fetch(url, { mode: 'cors', signal })
+    if (!reponse.ok) throw new Error(`statut ${reponse.status}`)
+  } catch (erreur) {
+    /*
+     * Une image affichée entre-temps — la grille tourne pendant le
+     * téléchargement — est déjà en cache sous forme opaque, et une réponse
+     * opaque ne peut pas satisfaire une requête CORS. Le fichier est là :
+     * ce n'est pas un échec.
+     */
+    if (!(await dansLeCache(url))) throw erreur
+  }
+}
 
 type Rapport = { fait: number; echecs: number; bloque: boolean }
 
@@ -402,9 +431,10 @@ async function lancerTelechargement(client: QueryClient, ids: number[]) {
     )
 
     /*
-     * Les données du mode combat passent en premier : vingt-trois requêtes,
-     * pour qu'un téléchargement interrompu tôt laisse quand même les
-     * combats jouables hors ligne.
+     * Les données du mode combat passent en premier : vingt-trois requêtes
+     * — les deux tables et les vingt et un lots de capacités —, pour qu'un
+     * téléchargement interrompu tôt laisse quand même les combats jouables
+     * hors ligne.
      */
     const combat: Array<() => Promise<unknown>> = []
 
@@ -426,21 +456,15 @@ async function lancerTelechargement(client: QueryClient, ids: number[]) {
      * espèces : 219 identifiants de plus, soit quatre requêtes. Sans elles,
      * une Méga jouée hors ligne se battrait avec le seul vivier de son
      * espèce — jouable, mais amputé de ses attaques propres.
+     *
+     * Seuls les viviers absents sont demandés, et c'est la fonction du mode
+     * combat qui les range : les deux ne peuvent donc pas se manquer.
      */
-    for (const lot of [...lotsDeCapacites(ids), ...lotsDeCapacites(idsFormes)]) {
-      if (enCache(client, movesetsKey(lot))) continue
-      combat.push(() =>
-        client.fetchQuery({
-          queryKey: [...movesetsKey(lot)],
-          queryFn: async ({ signal }) =>
-            normalizeMovesets(
-              await gql<RawMovesetsResponse>(MOVESETS_QUERY, { ids: lot }, signal),
-            ),
-          staleTime: Infinity,
-          gcTime: Infinity,
-          retry: false,
-        }),
-      )
+    for (const lot of decouper(
+      capacitesManquantes(client, [...ids, ...idsFormes]),
+      TAILLE_LOT_CAPACITES,
+    )) {
+      combat.push(() => chargerMovesets(client, lot, abandon.signal))
     }
 
     const total = combat.length + donnees.length + images.length

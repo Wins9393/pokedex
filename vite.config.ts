@@ -5,7 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
 // L'extension est explicite : `tsconfig.node.json` résout en `nodenext`,
 // où un import relatif sans extension n'est pas valide.
-import { DUREE_SPRITES, PLAFOND_SPRITES } from './src/lib/cache-sprites.js'
+import { DUREE_SPRITES, NOM_CACHE_SPRITES, PLAFOND_SPRITES } from './src/lib/cache-sprites.js'
 
 const JOUR = 60 * 60 * 24
 
@@ -84,7 +84,7 @@ export default defineConfig({
             urlPattern: /^https:\/\/raw\.githubusercontent\.com\/.*\.(png|gif)$/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'pokemon-sprites',
+              cacheName: NOM_CACHE_SPRITES,
               expiration: {
                 // Le plafond se compte en fichiers, pas en octets, et doit
                 // couvrir tout ce que le téléchargement hors ligne demande —
@@ -94,8 +94,16 @@ export default defineConfig({
                 maxAgeSeconds: DUREE_SPRITES,
                 purgeOnQuotaError: true,
               },
-              // Les images sont servies sans CORS : la réponse est opaque et
-              // porte le statut 0. L'omettre reviendrait à ne rien cacher.
+              /*
+               * Le statut 0 est celui des réponses opaques, que renvoie
+               * toute balise `<img>` : l'omettre reviendrait à ne rien
+               * cacher au fil de la navigation. Il a sa contrepartie — une
+               * réponse opaque ne dit pas si elle est une image ou un 429
+               * du CDN, et Workbox range le refus avec les autres. C'est
+               * pourquoi le téléchargement hors ligne, lui, demande ses
+               * images **en CORS** : son statut est lisible, un 429 n'entre
+               * jamais ici, et l'entrée déposée sert ensuite les `<img>`.
+               */
               cacheableResponse: { statuses: [0, 200] },
             },
           },
