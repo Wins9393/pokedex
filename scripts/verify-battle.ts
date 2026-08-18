@@ -20,7 +20,7 @@ import { estUnRendu, spritesDeDos } from '@/lib/sprites'
 import { estMuet } from '@/lib/battle/log'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
 import { resoudreFrappe } from '@/lib/battle/damage'
-import { creerBattler, creerCombat, resoudreTour, actif } from '@/lib/battle/engine'
+import { creerBattler, creerCombat, resoudreTour, actif, prochainEcran } from '@/lib/battle/engine'
 import { createRng } from '@/lib/battle/rng'
 
 /* Les données de l'API sont mises de côté pour que les relances soient
@@ -677,7 +677,109 @@ console.log('\nRythme du récit d’un tour')
   )
 }
 
-/* 11. Combat complet -------------------------------------------------- */
+/* 11. Sauvegarde de la partie ------------------------------------------ */
+console.log('\nSauvegarde et reprise')
+{
+  /*
+   * Node n'a pas de `localStorage` : on lui en donne un, plutôt que de
+   * n'éprouver que les fonctions pures. Ce sont justement la version et la
+   * relecture défensive qu'on veut voir marcher.
+   */
+  const memoire = new Map<string, string>()
+  ;(globalThis as unknown as { localStorage: Storage }).localStorage = {
+    getItem: (cle: string) => memoire.get(cle) ?? null,
+    setItem: (cle: string, valeur: string) => void memoire.set(cle, valeur),
+    removeItem: (cle: string) => void memoire.delete(cle),
+    clear: () => memoire.clear(),
+    key: () => null,
+    length: 0,
+  } as Storage
+
+  const { ecrire, effacer, lire, reprendre, VERSION } = await import('@/lib/battle/save')
+
+  const equipe1 = [{ speciesId: 6, formId: null, shiny: false }]
+  const equipe2 = [{ speciesId: 3, formId: null, shiny: false }]
+  const combat = creerCombat([[battler(6)], [battler(3)]], 4242)
+
+  ecrire({ equipe1, equipe2, etat: combat, ecran: { kind: 'choix', side: 0 }, passage: null })
+  const relu = lire()
+
+  ok('une partie écrite se relit', relu !== null)
+
+  /*
+   * La propriété qui compte : ce qui revient du disque doit se comporter
+   * exactement comme ce qui y est parti. Un champ perdu à la sérialisation
+   * — les PP, une statistique — ne se verrait pas autrement qu'en jouant.
+   */
+  const actions = [
+    { kind: 'move' as const, slot: 0 },
+    { kind: 'move' as const, slot: 1 },
+  ] as [never, never]
+  const avant = resoudreTour(combat, actions, chart)
+  const apres = resoudreTour(relu!.etat!, actions, chart)
+  ok(
+    'un combat relu se déroule à l’identique',
+    JSON.stringify(avant.events) === JSON.stringify(apres.events),
+    `${avant.events.length} événements, mêmes dégâts et même graine`,
+  )
+
+  ok(
+    'la sauvegarde ne contient aucun nom de joueur',
+    !JSON.stringify(relu).includes('Joueur') && !('noms' in (relu as object)),
+    'ils vivent sous leur propre clé et survivent à « Rejouer »',
+  )
+
+  ok(
+    'ni le choix en attente du joueur 1',
+    !JSON.stringify(relu).includes('enAttente'),
+    'l’écran de passage le cache, le disque ne le trahit pas',
+  )
+
+  /* Le rembobinage du tour, faute d'avoir gardé le choix secret. */
+  const versLeSecond = reprendre({ ...relu!, ecran: { kind: 'choix', side: 1 }, passage: null })
+  ok(
+    'reprendre ne rend jamais la main au joueur 2',
+    versLeSecond.ecran.kind === 'choix' && versLeSecond.ecran.side === 0,
+    'le tour est rembobiné au choix du joueur 1',
+  )
+
+  const sousPassage = reprendre({
+    ...relu!,
+    ecran: { kind: 'choix', side: 0 },
+    passage: { vers: 2, ecran: { kind: 'choix', side: 1 } },
+  })
+  ok(
+    'y compris quand c’est l’écran de passage qui le vise',
+    sousPassage.ecran.kind === 'choix' && sousPassage.ecran.side === 0,
+  )
+
+  /* Un rejeu ne se restaure pas : on rentre par la porte qui suit un tour. */
+  const enRejeu = reprendre({ ...relu!, ecran: { kind: 'replay' }, passage: null })
+  const attendu = prochainEcran(relu!.etat!)
+  ok(
+    'un rejeu interrompu reprend là où le tour s’achève',
+    JSON.stringify(enRejeu.passage) === JSON.stringify(attendu.passage),
+    'le tour n’est pas perdu, seulement sa narration',
+  )
+
+  /* La leçon du vivier d'attaques : une donnée d'hier ne doit rien casser. */
+  memoire.set('pokedex:combat', JSON.stringify({ version: VERSION + 1, equipe1, etat: combat }))
+  ok('une sauvegarde d’une autre version est jetée', lire() === null)
+
+  memoire.set('pokedex:combat', '{ ceci n’est pas du JSON')
+  ok('une sauvegarde illisible est jetée', lire() === null)
+
+  memoire.set(
+    'pokedex:combat',
+    JSON.stringify({ version: VERSION, equipe1, equipe2, etat: { teams: [] }, ecran: { kind: 'fin' } }),
+  )
+  ok('une sauvegarde à la mauvaise allure est jetée', lire() === null)
+
+  effacer()
+  ok('« Quitter » ne laisse rien derrière lui', lire() === null)
+}
+
+/* 12. Combat complet -------------------------------------------------- */
 console.log('\nCombat complet 3 contre 3')
 {
   let etat = creerCombat(

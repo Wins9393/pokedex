@@ -33,7 +33,11 @@ npm run dev
   et une reprise après interruption ne retélécharge que ce qui manque.
 - **Mode combat à deux sur un seul téléphone** : chaque joueur compose une équipe de trois, puis les
   deux choisissent leur action derrière un écran de passage avant que le tour ne se résolve. Chaque
-  attaque annonce son efficacité contre le Pokémon en face.
+  attaque annonce son efficacité contre le Pokémon en face, et chaque coup se joue à l'écran — six
+  gestes déduits des données, dessinés sans le moindre visuel téléchargé.
+- **Pseudos et partie reprise** : chacun entre son nom à la place de « Joueur 1 », retenu d'une
+  partie à l'autre. Le combat en cours survit à un rafraîchissement comme à un aller-retour vers le
+  Pokédex, jusqu'à « Rejouer » ou « Quitter ».
 - **Formes et chromatiques au combat** : 219 formes jouables — Méga, Primo, régionales, Motisma,
   Deoxys — avec leurs propres types et statistiques, et la variante chromatique pour n'importe quel
   Pokémon.
@@ -171,6 +175,47 @@ lance le coup, et l'étape muette qui la suit en est le paiement. Le trajet dure
 jauge, la secousse et l'enchaînement automatique s'y accrochent tous — sinon les PV tomberaient avant
 que le coup ait touché, la faute même que l'ordre des événements corrige. **Le nombre de tapes ne
 bouge pas** : on habille une étape existante, on n'en crée aucune.
+
+#### Les noms, et la partie qui ne se perd pas
+
+**Un nom n'appartient pas à un combat mais au téléphone.** Deux personnes qui jouent régulièrement
+ne retapent pas leur pseudo à chaque partie : il doit survivre à « Rejouer » et à « Quitter »,
+c'est-à-dire précisément à ce qui efface la partie en cours. Il vit donc sous sa propre clé, et
+**la sauvegarde n'en contient aucun** — elle ne connaît que les camps. Sinon se renommer laisserait
+l'ancien pseudo figé dans une partie reprise.
+
+Le titre du sélecteur d'équipe *est* le champ : chacun se nomme en composant son équipe, sans étape
+ajoutée. Un écran de réglages ferait payer à chaque partie un choix qu'on ne fait qu'une fois.
+
+La longueur a été mesurée plutôt que devinée, et la mesure a tranché autrement que prévu : sur les
+327 px utiles d'un écran de 375, l'écran de passage affiche le nom en 36 px gras, où **neuf
+capitales larges débordent déjà quand seize caractères courants tiennent**. Aucun plafond ne peut
+servir les deux cas — c'est donc le titre qui cède et passe à la ligne, jamais le prénom qu'on
+tronque.
+
+**La partie, elle, survit au rafraîchissement comme à la navigation**, sans péremption. Onze
+kilo-octets suffisent : 5,3 Ko d'état, 873 o par combattant, 660 o pour ses quatre attaques.
+
+C'est ce chiffre qui a fait choisir `localStorage` — **pour la raison inverse de celle qui l'avait
+fait abandonner** pour le dex. Onze kilo-octets sur cinq mégas ne posent aucun problème de quota,
+et il est *synchrone* : l'état est là au premier rendu. Avec IndexedDB il faudrait un écran
+d'attente, et le sélecteur d'équipe apparaîtrait une fraction de seconde avant que le combat ne
+revienne.
+
+Cinq champs sauvegardés là où la page en tient onze — équipes, état, écran, passage. Tout le reste
+n'est que la mise en scène d'un rejeu et se recalcule. **Un rejeu n'est donc jamais sauvegardé** :
+`etat` est déjà celui d'*après* le tour, si bien qu'un rafraîchissement en pleine narration ne perd
+pas le tour, seulement son récit — on rentre par `prochainEcran`, la porte qui suit un tour ordinaire.
+
+Deux absences sont délibérées, et la seconde a failli coûter cher :
+
+| Absent | Pourquoi |
+| --- | --- |
+| Les noms | Ils survivent à « Rejouer » ; les recopier figerait un pseudo périmé |
+| `enAttente` | C'est le choix du joueur 1 pendant que le joueur 2 décide — l'écrire en clair trahirait ce que l'écran de passage cache |
+
+`creerBattler` ayant tout aplati — types, statistiques de niveau 50, quatre attaques —, un combat
+repris **ne redemande rien au réseau** : ni les capacités, ni les formes, ni l'index.
 
 ### Pièges rencontrés
 
@@ -403,6 +448,22 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   coup ait touché, mais le nombre de PV et la couleur du palier étaient déduits de la valeur
   d'arrivée : ils annonçaient les dégâts pendant que le projectile était encore en vol. Les PV sont
   donc animés comme une **valeur**, dont la barre, le chiffre et la teinte sont tous dérivés.
+- **`min-width: auto` défait `max-w-full`.** Le titre de l'écran de passage vit dans un enfant de
+  flex en colonne : ce bloc s'élargit à son contenu, et le `max-w-full` du titre se mesure alors sur
+  une largeur déjà débordée. Un pseudo large sortait de l'écran sans passer à la ligne — mesuré à
+  465 px de texte dans 375 px de fenêtre, et sans que la page ne déborde, donc invisible à tout
+  contrôle de défilement. Un `w-full` sur le conteneur suffit.
+- **Une requête désactivée se déclare `pending` sans fin.** Une partie reprise porte ses combattants
+  tout montés et n'a plus rien à demander : couper la requête des capacités était donc juste, sauf
+  que l'écran d'attente s'appuyait sur son `isPending`. Résultat, un combat parfaitement jouable
+  masqué par un chargement définitif. La condition doit porter sur **ce qu'on a**, pas sur ce qu'on
+  attend.
+- **Un défaut silencieux vaut une action jamais choisie.** `[enAttente ?? { kind: 'move', slot: 0 }]`
+  est inoffensif tant que `enAttente` est forcément là. Ne pas sauvegarder ce choix — pour ne pas
+  écrire en clair ce que l'écran de passage cache — le rendait soudain atteignable : reprendre sur
+  le choix du joueur 2 aurait fait attaquer le joueur 1 avec sa première attaque sans qu'il l'ait
+  donnée. La reprise rembobine donc le tour ; un choix à refaire vaut mieux qu'un coup qu'on n'a pas
+  porté.
 - **Le volet d'aperçu intégré ne rend pas les animations.** Il tourne en
   `document.visibilityState === "hidden"`, où `requestAnimationFrame` est suspendu : toutes les
   captures d'un même geste sortent identiques, figées sur la même image. Et `motion` capture
@@ -415,8 +476,8 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 src/
 ├── api/        client GraphQL, requêtes, normalisation des réponses
 ├── lib/        recherche, filtres, table des types, sprites, formatage, géométrie de l'arène
-│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, formes, gestes, tours
-├── hooks/      index, fiche, attaques, formes, filtres (URL), favoris, thème, cri, inclinaison 3D
+│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, formes, gestes, tours, sauvegarde
+├── hooks/      index, fiche, attaques, formes, noms, filtres (URL), favoris, thème, cri, inclinaison 3D
 ├── components/ layout · grid · filters · detail · battle · ui
 └── pages/      PokedexPage · BattlePage
 ```

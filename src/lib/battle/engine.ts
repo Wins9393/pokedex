@@ -5,7 +5,16 @@ import { choisirAttaques, LUTTE } from './moveset'
 import { createRng } from './rng'
 import type { Rng } from './rng'
 import { statsDeCombat } from './stats'
-import type { Action, BattleEvent, BattleState, Battler, Side, Team } from './types'
+import type {
+  Action,
+  BattleEvent,
+  BattleState,
+  Battler,
+  Ecran,
+  Passage,
+  Side,
+  Team,
+} from './types'
 
 /* ------------------------------------------------------------------ *
  * Construction
@@ -67,6 +76,32 @@ export const equipeVaincue = (equipe: Team) => equipe.battlers.every((b) => b.hp
 /** Vrai quand le Pokémon sur le terrain est K.O. mais qu'il reste des remplaçants. */
 export const doitRemplacer = (etat: BattleState, side: Side) =>
   etat.winner === null && actif(etat, side).hp <= 0 && !equipeVaincue(etat.teams[side])
+
+/**
+ * Ce qui doit s'afficher une fois un tour déroulé : fin de partie, choix
+ * d'un remplaçant, ou tour suivant.
+ *
+ * Dans le moteur parce que deux appelants en ont besoin et doivent répondre
+ * pareil — l'enchaînement après un tour, et la reprise d'une partie
+ * sauvegardée. Une seconde implémentation dériverait, et une partie reprise
+ * ne s'ouvrirait pas là où elle s'était arrêtée.
+ */
+export function prochainEcran(etat: BattleState): { ecran: Ecran; passage: Passage | null } {
+  if (etat.winner !== null) return { ecran: { kind: 'fin' }, passage: null }
+
+  for (const side of [0, 1] as Side[]) {
+    if (doitRemplacer(etat, side)) {
+      const ecran: Ecran = { kind: 'remplacement', side }
+      return {
+        ecran,
+        passage: { vers: (side + 1) as 1 | 2, ecran, detail: 'Choisis ton prochain Pokémon' },
+      }
+    }
+  }
+
+  const ecran: Ecran = { kind: 'choix', side: 0 }
+  return { ecran, passage: { vers: 1, ecran } }
+}
 
 export const remplacantsDisponibles = (etat: BattleState, side: Side) =>
   etat.teams[side].battlers

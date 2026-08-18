@@ -1,3 +1,5 @@
+import { NOMS_PAR_DEFAUT } from './noms'
+import type { Noms } from './noms'
 import type { BattleEvent } from './types'
 
 /**
@@ -7,8 +9,12 @@ import type { BattleEvent } from './types'
  * propre dans les jeux, la barre de vie qui descend suffit. L'interface
  * conserve alors la ligne précédente pendant que la jauge se vide — c'est
  * bien une étape à part entière, qui attend sa tape comme les autres.
+ *
+ * Les noms des joueurs arrivent en paramètre plutôt que d'être lus ici :
+ * c'est le seul endroit du moteur qui nomme quelqu'un, et il n'a pas à
+ * connaître le stockage qui les retient.
  */
-export function texteEvenement(event: BattleEvent): string | null {
+export function texteEvenement(event: BattleEvent, noms: Noms = NOMS_PAR_DEFAUT): string | null {
   switch (event.kind) {
     case 'switch':
       return `${event.to} entre en jeu !`
@@ -25,7 +31,7 @@ export function texteEvenement(event: BattleEvent): string | null {
     case 'faint':
       return `${event.target} est K.O. !`
     case 'win':
-      return `Joueur ${event.side + 1} remporte le combat !`
+      return `${noms[event.side]} remporte le combat !`
     case 'damage':
       return null
   }
@@ -41,5 +47,8 @@ export function texteEvenement(event: BattleEvent): string | null {
  * rien de nouveau à lire, et la tape ne ferait que congédier une phrase
  * déjà lue. Elles s'enchaînent donc d'elles-mêmes, une fois l'animation
  * passée — voir `DUREE_JAUGE`.
+ *
+ * Sans les noms : ce qui rend une étape muette ne dépend pas d'eux, et les
+ * lui passer laisserait croire le contraire.
  */
 export const estMuet = (event: BattleEvent) => texteEvenement(event) === null

@@ -4,6 +4,8 @@ import { useTapLock } from '@/hooks/use-tap-lock'
 
 type Props = {
   player: 1 | 2
+  /** Le pseudo du joueur, défaut résolu par l'appelant. */
+  nom: string
   detail?: string
   onReady: () => void
 }
@@ -22,7 +24,7 @@ type Props = {
  * désactivées) le voile peut ne jamais devenir opaque. Seule la Pokéball
  * bouge, et son immobilité éventuelle est sans conséquence.
  */
-export function PassScreen({ player, detail, onReady }: Props) {
+export function PassScreen({ player, nom, detail, onReady }: Props) {
   const reduit = useReducedMotion()
 
   /*
@@ -48,11 +50,22 @@ export function PassScreen({ player, detail, onReady }: Props) {
           <PokeballIcon className="size-20 text-accent" />
         </motion.span>
 
-        <div className="space-y-2">
+        {/* `w-full` n'est pas décoratif : sans lui ce bloc, enfant d'un flex
+            en colonne, garde `min-width: auto` et s'élargit à son contenu.
+            Le `max-w-full` du titre se mesure alors sur une largeur déjà
+            débordée, et un pseudo large sort de l'écran sans passer à la
+            ligne — mesuré à 465 px de texte dans 375 px de fenêtre. */}
+        <div className="w-full space-y-2">
           <p className="font-semibold text-ink-faint text-sm uppercase tracking-widest">
             Au tour de
           </p>
-          <h2 className="font-black text-4xl text-ink tracking-tight">Joueur {player}</h2>
+          {/* Le titre passe à la ligne plutôt que de tronquer : à 375 px,
+              neuf capitales larges débordent déjà là où seize caractères
+              courants tiennent — aucun plafond de saisie ne peut servir les
+              deux cas, c'est donc la mise en page qui cède. */}
+          <h2 className="max-w-full break-words font-black text-4xl text-ink tracking-tight">
+            {nom}
+          </h2>
           {detail && <p className="text-ink-soft">{detail}</p>}
         </div>
 

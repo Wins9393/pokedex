@@ -10,9 +10,17 @@ import { FilterPanel } from '@/components/filters/FilterPanel'
 import { ResultsBar } from '@/components/filters/ResultsBar'
 import { FallbackImage } from '@/components/ui/FallbackImage'
 import { TypeBadge } from '@/components/ui/TypeBadge'
-import { ArrowLeftIcon, CloseIcon, SearchIcon, SparklesIcon } from '@/components/ui/icons'
+import {
+  ArrowLeftIcon,
+  CloseIcon,
+  PencilIcon,
+  SearchIcon,
+  SparklesIcon,
+} from '@/components/ui/icons'
 import { useFavorites } from '@/hooks/use-favorites'
 import { useLocalFilters } from '@/hooks/use-filters'
+import { useNomsJoueurs } from '@/hooks/use-noms-joueurs'
+import { NOM_MAX, NOMS_PAR_DEFAUT } from '@/lib/battle/noms'
 import { TAILLE_EQUIPE } from '@/lib/battle/types'
 import type { Choix } from '@/lib/battle/types'
 import { applyFilters, computeBounds } from '@/lib/filters'
@@ -32,6 +40,8 @@ type Props = {
 
 export function TeamPicker({ pokemon, player, formes, onDone }: Props) {
   const controleur = useLocalFilters()
+  const { saisis, definirNom } = useNomsJoueurs()
+  const side = (player - 1) as 0 | 1
   const { favorites } = useFavorites()
   const [choisis, setChoisis] = useState<Choix[]>([])
   const [tiroirOuvert, setTiroirOuvert] = useState(false)
@@ -134,9 +144,30 @@ export function TeamPicker({ pokemon, player, formes, onDone }: Props) {
               Pokédex
             </Link>
 
-            <h1 className="font-black text-ink text-lg tracking-tight">
-              Joueur <span className="text-accent">{player}</span>
-            </h1>
+            {/*
+              Le titre est le champ. Un écran de réglages ferait payer à
+              chaque partie un choix qu'on ne fait qu'une fois ; ici chacun
+              se nomme en composant son équipe, sans étape ajoutée. Le crayon
+              est là pour que ça se voie : un champ sans bordure ressemble
+              sinon à du texte mort.
+            */}
+            <label className="group flex items-center gap-1.5 rounded-lg px-2 py-1 transition focus-within:bg-panel-soft hover:bg-panel-soft">
+              <input
+                value={saisis[side]}
+                onChange={(event) => definirNom(side, event.target.value)}
+                placeholder={NOMS_PAR_DEFAUT[side]}
+                maxLength={NOM_MAX}
+                aria-label={`Nom du joueur ${player}`}
+                enterKeyHint="done"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur()
+                }}
+                className="w-28 bg-transparent text-right font-black text-ink text-lg tracking-tight outline-none placeholder:text-ink-faint sm:w-36"
+              />
+              {/* Après le champ, pas avant : le texte est aligné à droite, un
+                  crayon posé à gauche flotterait loin du nom. */}
+              <PencilIcon className="size-3.5 shrink-0 text-ink-faint transition group-focus-within:text-accent" />
+            </label>
           </div>
 
           {/* Les emplacements restent visibles en permanence : c'est le

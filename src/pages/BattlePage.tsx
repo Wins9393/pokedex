@@ -13,35 +13,37 @@ import { ErrorScreen, LoadingScreen } from '@/components/ui/StateScreens'
 import { ArrowLeftIcon, PokeballIcon } from '@/components/ui/icons'
 import { useBattleForms } from '@/hooks/use-forms'
 import { useMoves, useMovesets } from '@/hooks/use-moves'
+import { useNomsJoueurs } from '@/hooks/use-noms-joueurs'
 import { usePokedex } from '@/hooks/use-pokedex'
 import { useTapLock } from '@/hooks/use-tap-lock'
 import {
   actif,
   creerBattler,
   creerCombat,
-  doitRemplacer,
+  prochainEcran,
   remplacer,
   remplacantsDisponibles,
   resoudreTour,
 } from '@/lib/battle/engine'
 import { estMuet, texteEvenement } from '@/lib/battle/log'
+import { ecrire, effacer, lire, reprendre } from '@/lib/battle/save'
+import type { Noms } from '@/lib/battle/noms'
 import { graineAleatoire } from '@/lib/battle/rng'
-import type { Action, BattleEvent, BattleState, Choix, Side, Team } from '@/lib/battle/types'
+import type {
+  Action,
+  BattleEvent,
+  BattleState,
+  Choix,
+  Ecran,
+  Passage,
+  Side,
+  Team,
+} from '@/lib/battle/types'
 import type { TypeChart } from '@/lib/type-chart'
 
 /* ------------------------------------------------------------------ *
  * Écrans
  * ------------------------------------------------------------------ */
-
-type Ecran =
-  | { kind: 'equipe'; joueur: 1 | 2 }
-  | { kind: 'choix'; side: Side }
-  | { kind: 'replay' }
-  | { kind: 'remplacement'; side: Side }
-  | { kind: 'fin' }
-
-/** Écran de passage en attente : il masque l'écran suivant jusqu'au tap. */
-type Passage = { vers: 1 | 2; ecran: Ecran; detail?: string }
 
 /** Le temps de laisser l'œil se poser sur la valeur d'arrivée de la jauge. */
 const MARGE_JAUGE = 150
@@ -88,6 +90,7 @@ function appliquer(etat: BattleState, event: BattleEvent): BattleState {
 
 export function BattlePage() {
   const { pokemon, byId, chart, isPending, isError, error, refetch } = usePokedex()
+  const { noms } = useNomsJoueurs()
   const { byId: movesById, isPending: movesPending, isError: movesError } = useMoves()
   /*
    * Les formes ne bloquent pas le combat : sans la table, la sélection ne
@@ -97,23 +100,38 @@ export function BattlePage() {
   const { parEspece: formesParEspece } = useBattleForms(byId)
 
   /*
+   * La partie sauvegardée, lue une seule fois au montage.
+   *
+   * `localStorage` est synchrone, et c'est précisément ce qu'on veut ici :
+   * l'état est là dès le premier rendu. Avec IndexedDB — le stockage retenu
+   * pour le dex, parce que les fiches n'y tenaient pas — il faudrait un
+   * écran d'attente, et le sélecteur d'équipe apparaîtrait une fraction de
+   * seconde avant que le combat ne revienne. Onze kilo-octets sur cinq
+   * mégas : la contrainte qui avait fait fuir localStorage ne s'applique pas.
+   */
+  const [reprise] = useState(() => {
+    const sauve = lire()
+    return sauve ? { sauve, ...reprendre(sauve) } : null
+  })
+
+  /*
    * Les deux équipes sont stockées séparément, et `equipes` n'existe que
    * lorsque les deux sont complètes. Conserver un couple à moitié rempli
    * ferait démarrer la construction du combat dès le premier joueur, avec
    * une équipe adverse vide.
    */
-  const [equipe1, setEquipe1] = useState<Choix[] | null>(null)
-  const [equipe2, setEquipe2] = useState<Choix[] | null>(null)
+  const [equipe1, setEquipe1] = useState<Choix[] | null>(reprise?.sauve.equipe1 ?? null)
+  const [equipe2, setEquipe2] = useState<Choix[] | null>(reprise?.sauve.equipe2 ?? null)
   const equipes = useMemo(
     () => (equipe1 && equipe2 ? ([equipe1, equipe2] as [Choix[], Choix[]]) : null),
     [equipe1, equipe2],
   )
 
-  const [etat, setEtat] = useState<BattleState | null>(null)
-  const [affiche, setAffiche] = useState<BattleState | null>(null)
+  const [etat, setEtat] = useState<BattleState | null>(reprise?.sauve.etat ?? null)
+  const [affiche, setAffiche] = useState<BattleState | null>(reprise?.sauve.etat ?? null)
 
-  const [ecran, setEcran] = useState<Ecran>({ kind: 'equipe', joueur: 1 })
-  const [passage, setPassage] = useState<Passage | null>(null)
+  const [ecran, setEcran] = useState<Ecran>(reprise?.ecran ?? { kind: 'equipe', joueur: 1 })
+  const [passage, setPassage] = useState<Passage | null>(reprise?.passage ?? null)
 
   const [enAttente, setEnAttente] = useState<Action | null>(null)
   /**
@@ -128,7 +146,14 @@ export function BattlePage() {
    */
   const [evenements, setEvenements] = useState<BattleEvent[]>([])
   const [curseur, setCurseur] = useState(0)
-  const [message, setMessage] = useState<string | null>(null)
+  /*
+   * Le récit n'est pas sauvegardé : à la reprise il n'y a aucune réplique à
+   * réafficher, et le repli d'origine — « Le combat commence ! » — mentirait
+   * sur une partie retrouvée au huitième tour.
+   */
+  const [message, setMessage] = useState<string | null>(
+    reprise?.sauve.etat ? 'Reprise du combat.' : null,
+  )
   const [impact, setImpact] = useState<Side | null>(null)
 
   /*
@@ -142,14 +167,17 @@ export function BattlePage() {
    * identifiants tiennent dans le même aller-retour que six.
    */
   const idsEquipes = useMemo(() => {
-    if (!equipes) return []
+    // Un combat repris porte déjà ses combattants tout montés — types,
+    // statistiques et quatre attaques comprises. La reprise ne redemande
+    // donc rien au réseau.
+    if (!equipes || etat) return []
     const ids = [...equipes[0], ...equipes[1]].flatMap((choix) =>
       choix.formId ? [choix.speciesId, choix.formId] : [choix.speciesId],
     )
     return [...new Set(ids)]
-  }, [equipes])
+  }, [equipes, etat])
 
-  const { movesets, isPending: movesetsPending, isError: movesetsError } = useMovesets(idsEquipes)
+  const { movesets, isError: movesetsError } = useMovesets(idsEquipes)
 
   /* --- Construction du combat une fois les capacités reçues --------- */
   useEffect(() => {
@@ -180,25 +208,23 @@ export function BattlePage() {
     setPassage({ vers: 1, ecran: { kind: 'choix', side: 0 }, detail: 'Le combat commence !' })
   }, [etat, equipes, movesets, movesById, byId, formesParEspece])
 
+  /* --- Sauvegarde de la partie -------------------------------------- */
+  useEffect(() => {
+    // Avant l'équipe du joueur 1, il n'y a rien à retenir.
+    if (!equipe1) return
+    ecrire({ equipe1, equipe2, etat, ecran, passage })
+  }, [equipe1, equipe2, etat, ecran, passage])
+
   /* --- Enchaînement après un tour ou un remplacement ---------------- */
   const enchainer = useCallback((courant: BattleState) => {
-    if (courant.winner !== null) {
-      setEcran({ kind: 'fin' })
-      return
-    }
-
-    for (const side of [0, 1] as Side[]) {
-      if (doitRemplacer(courant, side)) {
-        setPassage({
-          vers: (side + 1) as 1 | 2,
-          ecran: { kind: 'remplacement', side },
-          detail: 'Choisis ton prochain Pokémon',
-        })
-        return
-      }
-    }
-
-    setPassage({ vers: 1, ecran: { kind: 'choix', side: 0 } })
+    const suite = prochainEcran(courant)
+    /*
+     * Avec un passage, l'écran courant reste dessous jusqu'à la tape : c'est
+     * lui qui révélera `suite.ecran`. Sans passage — la fin du combat — il
+     * n'y a rien à cacher, on y va directement.
+     */
+    if (suite.passage) setPassage(suite.passage)
+    else setEcran(suite.ecran)
   }, [])
 
   /* --- Rejeu du récit, au rythme du joueur -------------------------- */
@@ -210,12 +236,12 @@ export function BattlePage() {
 
     // Les dégâts n'ont pas de phrase : la ligne précédente reste affichée
     // pendant que la jauge se vide, comme dans les jeux.
-    const texte = texteEvenement(event)
+    const texte = texteEvenement(event, noms)
     if (texte) setMessage(texte)
 
     setAffiche((precedent) => (precedent ? appliquer(precedent, event) : precedent))
     setImpact(event.kind === 'damage' ? ((1 - event.side) as Side) : null)
-  }, [ecran, curseur, evenements])
+  }, [ecran, curseur, evenements, noms])
 
   /** Une tape fait avancer d'un événement, et clôt le rejeu au dernier. */
   const avancerRecit = useCallback(() => {
@@ -326,11 +352,14 @@ export function BattlePage() {
 
     setEtat(resultat.etat)
     setAffiche(resultat.etat)
-    if (premier) setMessage(texteEvenement(premier))
+    if (premier) setMessage(texteEvenement(premier, noms))
     enchainer(resultat.etat)
   }
 
   const rejouer = (memesEquipes: boolean) => {
+    // La partie sauvegardée disparaît d'abord : sans péremption, c'est
+    // « Rejouer » et « Quitter » qui la libèrent, et rien d'autre.
+    effacer()
     setEtat(null)
     setAffiche(null)
     setEvenements([])
@@ -380,6 +409,7 @@ export function BattlePage() {
       {enPassage && (
         <PassScreen
           player={passage.vers}
+          nom={noms[passage.vers - 1]}
           detail={passage.detail}
           onReady={() => {
             setEcran(passage.ecran)
@@ -401,8 +431,15 @@ export function BattlePage() {
           />
         )}
 
+        {/*
+          La condition porte sur ce qu'on a, pas sur ce qu'on attend. Une
+          requête désactivée — le cas d'une partie reprise, qui n'a plus
+          rien à demander — se déclare `pending` sans fin : s'y fier
+          masquerait un combat parfaitement jouable derrière un écran de
+          chargement définitif.
+        */}
         {ecran.kind !== 'equipe' &&
-          (movesetsPending || !affiche || !etat ? (
+          (!affiche || !etat ? (
             <Cadre>
               {movesetsError ? (
                 <ErrorScreen
@@ -420,6 +457,7 @@ export function BattlePage() {
               etat={etat}
               chart={chart}
               message={message}
+              noms={noms}
               impact={impact}
               effet={effet}
               curseur={curseur}
@@ -448,7 +486,18 @@ function Cadre({ children }: { children: ReactNode }) {
   )
 }
 
-function EnTete({ tour }: { tour?: number }) {
+/**
+ * Deux sorties, et elles ne font pas la même chose.
+ *
+ * Le lien « Pokédex » quitte l'écran sans toucher à la partie : depuis
+ * qu'elle est sauvegardée, on la retrouve intacte en revenant. « Quitter »
+ * l'abandonne pour de bon. Sans cette seconde sortie, une partie qui ne
+ * périme jamais interdirait d'en commencer une neuve avant d'avoir fini la
+ * précédente.
+ */
+function EnTete({ tour, onQuitter }: { tour?: number; onQuitter?: () => void }) {
+  const [confirme, setConfirme] = useState(false)
+
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
       <Link
@@ -458,11 +507,45 @@ function EnTete({ tour }: { tour?: number }) {
         <ArrowLeftIcon className="size-4" />
         Pokédex
       </Link>
-      {tour !== undefined && (
-        <span className="rounded-full border border-line bg-panel-soft px-3 py-1 font-semibold text-ink-soft text-xs">
-          Tour {tour}
-        </span>
-      )}
+
+      <div className="flex items-center gap-2">
+        {tour !== undefined && (
+          <span className="rounded-full border border-line bg-panel-soft px-3 py-1 font-semibold text-ink-soft text-xs">
+            Tour {tour}
+          </span>
+        )}
+
+        {/* Confirmation sur place plutôt qu'en surcouche : le geste est
+            destructeur, mais il ne mérite pas de couvrir le combat. */}
+        {onQuitter &&
+          (confirme ? (
+            <span className="flex items-center gap-1.5">
+              <span className="font-semibold text-ink-soft text-xs">Abandonner ?</span>
+              <button
+                type="button"
+                onClick={onQuitter}
+                className="rounded-full bg-rose-500 px-3 py-1 font-bold text-white text-xs"
+              >
+                Oui
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirme(false)}
+                className="rounded-full border border-line px-3 py-1 font-semibold text-ink-soft text-xs"
+              >
+                Non
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirme(true)}
+              className="rounded-full border border-line px-3 py-1 font-semibold text-ink-soft text-xs transition hover:text-ink"
+            >
+              Quitter
+            </button>
+          ))}
+      </div>
     </div>
   )
 }
@@ -473,6 +556,7 @@ type CombatProps = {
   etat: BattleState
   chart: TypeChart | undefined
   message: string | null
+  noms: Noms
   impact: Side | null
   /** Le geste d'attaque à jouer, `null` hors du moment de la frappe. */
   effet: (Omit<Effet, 'depuis'> & { side: Side }) | null
@@ -495,6 +579,7 @@ function Combat({
   etat,
   chart,
   message,
+  noms,
   impact,
   effet,
   curseur,
@@ -530,7 +615,7 @@ function Combat({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
-      <EnTete tour={affiche.turn} />
+      <EnTete tour={affiche.turn} onQuitter={() => onRejouer(false)} />
 
       <BattleArena
         joueur={vue(perspective)}
@@ -608,7 +693,7 @@ function Combat({
           <div className="space-y-3 text-center">
             <PokeballIcon className="mx-auto size-12 text-accent" />
             <p className="font-black text-2xl text-ink">
-              Joueur {etat.winner + 1} remporte le combat !
+              {noms[etat.winner]} remporte le combat !
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
               <button

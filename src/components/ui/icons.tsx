@@ -232,3 +232,19 @@ export const PokeballIcon = ({ className = '' }: IconProps) => (
     <circle cx="50" cy="50" r="14" fill="var(--panel, #fff)" stroke="currentColor" strokeWidth="6" />
   </svg>
 )
+
+export const PencilIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M4 20h4l10.5-10.5a2.83 2.83 0 0 0-4-4L4 16v4Z" />
+    <path d="M13.5 6.5l4 4" />
+  </svg>
+)

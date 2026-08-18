@@ -103,3 +103,22 @@ export type BattleEvent =
   | { kind: 'damage'; side: Side; target: string; amount: number; hp: number; maxHp: number }
   | { kind: 'faint'; side: Side; target: string }
   | { kind: 'win'; side: Side }
+
+/* ------------------------------------------------------------------ *
+ * Déroulé de la partie
+ * ------------------------------------------------------------------ */
+
+/**
+ * Où en est la partie. Dans le modèle et non dans la page, parce que la
+ * sauvegarde doit pouvoir le nommer — et parce que c'est bien une étape du
+ * jeu, pas une préférence d'affichage.
+ */
+export type Ecran =
+  | { kind: 'equipe'; joueur: 1 | 2 }
+  | { kind: 'choix'; side: Side }
+  | { kind: 'replay' }
+  | { kind: 'remplacement'; side: Side }
+  | { kind: 'fin' }
+
+/** Écran de passage en attente : il masque l'écran suivant jusqu'au tap. */
+export type Passage = { vers: 1 | 2; ecran: Ecran; detail?: string }
