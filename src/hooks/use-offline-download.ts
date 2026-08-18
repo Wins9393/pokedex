@@ -20,7 +20,7 @@ import { FORMS_QUERY_KEY } from '@/hooks/use-forms'
 import { MOVES_QUERY_KEY, movesetsKey } from '@/hooks/use-moves'
 import { INDEX_QUERY_KEY } from '@/hooks/use-pokedex'
 import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
-import { artworkUrl, pixelBackUrl, pixelUrl, showdownUrl } from '@/lib/sprites'
+import { artworkUrl, imagesPrechargees } from '@/lib/sprites'
 
 /** Nom du cache déclaré dans la règle Workbox de `vite.config.ts`. */
 const CACHE_SPRITES = 'pokemon-sprites'
@@ -329,12 +329,7 @@ export function useOfflineDownload(ids: number[]) {
      */
     const urlsManquantes = serviceWorkerActif()
       ? [...ids, ...idsFormes]
-          .flatMap((id) => [
-            artworkUrl(id),
-            showdownUrl(id),
-            pixelUrl(id),
-            pixelBackUrl(id),
-          ])
+          .flatMap(imagesPrechargees)
           .filter((url) => !dejaLa.has(url))
       : []
 

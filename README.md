@@ -292,6 +292,28 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   deux images : les afficher toutes deux, ne serait-ce qu'en réserve invisible, doublerait le
   trafic. Précharger le dex entier représenterait 64 Mo, et le CDN ne renvoie qu'un
   `cache-control: max-age=300` — un cache durable exigerait un service worker.
+- **Un plafond de cache se compte en fichiers, pas en mégaoctets.** Le cache de sprites était
+  limité à 2500 entrées, un nombre choisi sur un raisonnement en volume (« 164 Mo, 3 % d'un quota
+  typique ») alors que Workbox compte des *fichiers*. Le téléchargement hors ligne en demande
+  **4976** — quatre par combattant, formes comprises : passé le plafond, chaque écriture évinçait
+  la plus ancienne entrée et **le téléchargement se mangeait lui-même en cours de route**. La barre
+  atteignait 100 % — elle compte les requêtes émises, pas ce qui a survécu — et la moitié du dex
+  repartait chercher ses images au CDN, qui répond `429`.
+
+  La valeur datait d'un besoin plus petit : posée pour la seule navigation, deux images par espèce
+  (2050), elle n'a pas été revue quand le préchargement a gagné les formes puis les sprites de dos.
+  Elle vit désormais dans `lib/cache-sprites.ts`, partagée entre `vite.config.ts` et
+  `verify:battle`, qui la recoupe avec le nombre d'images réellement planifié et **échoue si elle
+  repasse dessous**. La liste des variantes préchargées n'existe qu'à un seul endroit
+  (`imagesPrechargees`) : la recopier ferait vérifier au garde-fou autre chose que ce qui est
+  téléchargé, c'est-à-dire précisément la panne qu'il doit empêcher.
+- **Un déploiement n'efface pas les images déjà en cache.** `cleanupOutdatedCaches` ne touche
+  qu'au précache de la coquille applicative ; les caches d'exécution sont identifiés par leur nom
+  et survivent à un nouveau service worker. Une image manquante après une mise à jour vient de
+  l'éviction ci-dessus, jamais du déploiement.
+- **Une expiration de trente jours contredit l'argument hors ligne.** Les images repartaient au CDN
+  au bout d'un mois — potentiellement hors de portée, et c'est bien le cas d'usage. Portée à un an ;
+  le vrai garde-fou contre un appareil saturé reste `purgeOnQuotaError`.
 - **Tout dépend du type de barre de défilement du système**, et les deux cas demandent des
   traitements opposés :
   - *Barres classiques* (elles occupent de la largeur) : une zone en `overflow: auto` décale son

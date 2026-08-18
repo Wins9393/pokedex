@@ -202,3 +202,19 @@ export const animatedImage = (sprites: SpriteSet, shiny: boolean) =>
 
 export const hasAnimated = (sprites: SpriteSet) =>
   Boolean(sprites.showdown || sprites.showdownShiny)
+
+/**
+ * Les images qu'un combattant fait précharger pour le hors-ligne.
+ *
+ * Exportée pour n'exister qu'à un seul endroit : `use-offline-download` la
+ * déroule pour les 1244 combattants, et `verify:battle` s'en sert pour
+ * recouper le plafond du cache. Recopier la liste des deux côtés
+ * laisserait le garde-fou vérifier autre chose que ce qui est téléchargé —
+ * ce qui est exactement la panne qu'il doit empêcher.
+ */
+export const imagesPrechargees = (id: number) => [
+  artworkUrl(id),
+  showdownUrl(id),
+  pixelUrl(id),
+  pixelBackUrl(id),
+]

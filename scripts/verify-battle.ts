@@ -16,7 +16,8 @@ import { FORMS_QUERY, INDEX_QUERY, MOVES_QUERY, MOVESETS_QUERY } from '@/api/que
 import { buildTypeChart } from '@/lib/type-chart'
 import { statsDeCombat } from '@/lib/battle/stats'
 import { formesJouables, idsDesFormes } from '@/lib/battle/forms'
-import { estUnRendu, spritesDeDos } from '@/lib/sprites'
+import { estUnRendu, imagesPrechargees, spritesDeDos } from '@/lib/sprites'
+import { PLAFOND_SPRITES } from '@/lib/cache-sprites'
 import { estMuet } from '@/lib/battle/log'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
 import { resoudreFrappe } from '@/lib/battle/damage'
@@ -677,7 +678,50 @@ console.log('\nRythme du récit d’un tour')
   )
 }
 
-/* 11. Sauvegarde de la partie ------------------------------------------ */
+/* 11. Plafond du cache d'images ----------------------------------------- */
+console.log('\nCache des images hors ligne')
+{
+  /*
+   * Le plafond de Workbox se compte en **fichiers**, et il évince la plus
+   * ancienne entrée à chaque écriture au-delà. S'il repasse sous ce que le
+   * téléchargement demande, celui-ci se mange lui-même en cours de route :
+   * la barre atteint 100 %, la moitié des images est jetée derrière elle, et
+   * le dex repart les chercher au CDN qui répond 429.
+   *
+   * Rien ne signale cette dérive à l'exécution — c'est pourquoi elle est
+   * vérifiée ici. Elle est arrivée pour de vrai : un plafond posé pour la
+   * navigation (2 images par espèce) est resté en place quand le
+   * préchargement est passé à 4 images pour 1244 combattants.
+   */
+  const dex = normalizeIndex(brut.index).pokemon
+  const jouables = formesJouables(
+    normalizeBattleForms(brut.formes),
+    new Map(dex.map((p) => [p.id, p])),
+  )
+  const combattants = dex.length + idsDesFormes(jouables).length
+  const parCombattant = imagesPrechargees(1).length
+  const demandees = combattants * parCombattant
+
+  ok(
+    'le plafond du cache couvre le téléchargement',
+    PLAFOND_SPRITES >= demandees,
+    `${demandees} images demandées (${combattants} combattants × ${parCombattant}), plafond ${PLAFOND_SPRITES}`,
+  )
+
+  /*
+   * Une marge, et pas seulement l'égalité : la navigation ajoute au
+   * préchargement des images qu'il ne contient pas — chromatiques consultés
+   * sur les fiches, dos animés vus en combat. Sans elle, la première image
+   * regardée hors du plan évincerait une image téléchargée.
+   */
+  ok(
+    'il garde de quoi absorber la navigation',
+    PLAFOND_SPRITES >= demandees * 1.1,
+    `${PLAFOND_SPRITES - demandees} entrées de marge`,
+  )
+}
+
+/* 12. Sauvegarde de la partie ------------------------------------------ */
 console.log('\nSauvegarde et reprise')
 {
   /*
@@ -779,7 +823,7 @@ console.log('\nSauvegarde et reprise')
   ok('« Quitter » ne laisse rien derrière lui', lire() === null)
 }
 
-/* 12. Combat complet -------------------------------------------------- */
+/* 13. Combat complet -------------------------------------------------- */
 console.log('\nCombat complet 3 contre 3')
 {
   let etat = creerCombat(

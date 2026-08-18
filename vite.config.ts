@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
+// L'extension est explicite : `tsconfig.node.json` résout en `nodenext`,
+// où un import relatif sans extension n'est pas valide.
+import { DUREE_SPRITES, PLAFOND_SPRITES } from './src/lib/cache-sprites.js'
 
 const JOUR = 60 * 60 * 24
 
@@ -83,12 +86,12 @@ export default defineConfig({
             options: {
               cacheName: 'pokemon-sprites',
               expiration: {
-                // De quoi couvrir le dex entier, illustrations et sprites
-                // animés confondus : environ 164 Mo, soit 3 % d'un quota
-                // d'origine typique. `purgeOnQuotaError` reste le filet sur
-                // un appareil à l'espace contraint.
-                maxEntries: 2500,
-                maxAgeSeconds: JOUR * 30,
+                // Le plafond se compte en fichiers, pas en octets, et doit
+                // couvrir tout ce que le téléchargement hors ligne demande —
+                // voir `cache-sprites.ts`, que `verify:battle` recoupe avec
+                // le nombre réel d'images planifiées.
+                maxEntries: PLAFOND_SPRITES,
+                maxAgeSeconds: DUREE_SPRITES,
                 purgeOnQuotaError: true,
               },
               // Les images sont servies sans CORS : la réponse est opaque et
