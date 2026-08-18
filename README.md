@@ -292,6 +292,18 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   deux images : les afficher toutes deux, ne serait-ce qu'en réserve invisible, doublerait le
   trafic. Précharger le dex entier représenterait 64 Mo, et le CDN ne renvoie qu'un
   `cache-control: max-age=300` — un cache durable exigerait un service worker.
+- **Un travail de portée applicative ne peut pas vivre dans l'état d'un composant.** Le
+  téléchargement hors ligne gardait son `AbortController` dans le bouton, avorté au démontage.
+  Tant que ce bouton siégeait dans l'en-tête, personne ne s'en apercevait — le ranger dans un menu
+  l'a rendu criant : **replier le menu interrompait l'opération**. La navigation vers le mode
+  combat, qui a son propre en-tête, faisait déjà la même chose sans que ça se voie. L'état et le
+  contrôleur vivent désormais dans un store hors de React (`useSyncExternalStore`), comme le thème
+  et les pseudos : le travail continue quel que soit ce qui est monté, et n'importe quel écran peut
+  en afficher l'avancement. Corollaire : la remesure du cache doit s'abstenir pendant un
+  téléchargement, sinon le montage d'un lecteur écraserait l'état « en cours ».
+- **Une opération longue lancée depuis un menu doit se voir menu fermé.** La commande du menu porte
+  le pourcentage tant que le téléchargement tourne — sans quoi on le lance et plus rien n'en
+  témoigne.
 - **Un plafond de cache se compte en fichiers, pas en mégaoctets.** Le cache de sprites était
   limité à 2500 entrées, un nombre choisi sur un raisonnement en volume (« 164 Mo, 3 % d'un quota
   typique ») alors que Workbox compte des *fichiers*. Le téléchargement hors ligne en demande

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { MenuIcon } from '@/components/ui/icons'
+import { useProgressionHorsLigne } from '@/hooks/use-offline-download'
 
 /**
  * Une ligne du menu : la commande telle qu'elle existe déjà, avec son nom
@@ -45,6 +46,12 @@ export function LigneMenu({ label, children }: { label: string; children: ReactN
  */
 export function HeaderMenu({ children }: { children: ReactNode }) {
   const [ouvert, setOuvert] = useState(false)
+  /*
+   * Le téléchargement se lance depuis ce menu et dure plusieurs minutes.
+   * Replié, il ne laisserait aucun signe extérieur : la commande porte donc
+   * l'avancement tant qu'il tourne.
+   */
+  const { enCours, pourcentage } = useProgressionHorsLigne()
   const zone = useRef<HTMLDivElement>(null)
   const reduit = useReducedMotion()
   const id = useId()
@@ -76,14 +83,21 @@ export function HeaderMenu({ children }: { children: ReactNode }) {
         onClick={() => setOuvert((valeur) => !valeur)}
         aria-expanded={ouvert}
         aria-controls={id}
-        aria-label="Réglages"
-        className={`grid size-9 place-items-center rounded-full border transition ${
-          ouvert
+        aria-label={enCours ? `Réglages — téléchargement ${pourcentage} %` : 'Réglages'}
+        className={`flex h-9 items-center justify-center gap-1 rounded-full border transition ${
+          enCours ? 'px-2.5' : 'w-9'
+        } ${
+          ouvert || enCours
             ? 'border-transparent bg-accent text-white'
             : 'border-line bg-panel-soft text-ink-soft hover:text-ink'
         }`}
       >
-        <MenuIcon className="size-4.5" />
+        <MenuIcon className={`size-4.5 shrink-0 ${enCours ? 'animate-pulse' : ''}`} />
+        {enCours && (
+          <span className="font-semibold text-xs tabular-nums" aria-hidden="true">
+            {pourcentage} %
+          </span>
+        )}
       </button>
 
       {/*

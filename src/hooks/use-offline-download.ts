@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { gql } from '@/api/client'
@@ -239,38 +239,83 @@ async function executer(
   return bloque
 }
 
-export function useOfflineDownload(ids: number[]) {
-  const client = useQueryClient()
-  const [etat, setEtat] = useState<EtatHorsLigne>('mesure')
-  const [progression, setProgression] = useState({ fait: 0, total: 0, echecs: 0 })
-  const [bloque, setBloque] = useState(false)
-  const controleur = useRef<AbortController | null>(null)
+/* ------------------------------------------------------------------ *
+ * L'avancement, hors de React
+ * ------------------------------------------------------------------ */
 
-  const rafraichir = useCallback(async () => {
-    if (ids.length === 0) return
-    const { fiches, images, combat, combatRequis } = await mesurer(client, ids)
-    const imagesRequises = serviceWorkerActif() ? ids.length : 0
-    setEtat(
+/**
+ * Le téléchargement ne doit dépendre d'aucun composant monté.
+ *
+ * Il vivait dans l'état du bouton, avec un `AbortController` avorté au
+ * démontage : fermer le menu qui l'héberge — ou simplement partir en mode
+ * combat, qui a son propre en-tête — suffisait à interrompre l'opération en
+ * cours. Le travail est de portée applicative, son état doit l'être aussi.
+ *
+ * Même mécanique que le thème et les pseudos : un store minuscule, lu par
+ * `useSyncExternalStore`. N'importe quel écran peut donc afficher le même
+ * avancement, et aucun ne le possède.
+ */
+type Instantane = {
+  etat: EtatHorsLigne
+  progression: { fait: number; total: number; echecs: number }
+  bloque: boolean
+}
+
+let instantane: Instantane = {
+  etat: 'mesure',
+  progression: { fait: 0, total: 0, echecs: 0 },
+  bloque: false,
+}
+
+const abonnes = new Set<() => void>()
+
+function publier(suite: Partial<Instantane>) {
+  instantane = { ...instantane, ...suite }
+  for (const abonne of abonnes) abonne()
+}
+
+function souscrire(abonne: () => void) {
+  abonnes.add(abonne)
+  return () => {
+    abonnes.delete(abonne)
+  }
+}
+
+const lire = () => instantane
+
+/** Hors de React lui aussi : c'est lui qui liait le travail à un composant. */
+let controleur: AbortController | null = null
+
+const pourcentageDe = (p: Instantane['progression']) =>
+  p.total === 0 ? 0 : Math.round((p.fait / p.total) * 100)
+
+/**
+ * Remesure ce qui est déjà en cache.
+ *
+ * Sans effet pendant un téléchargement : chaque montage d'un composant
+ * lecteur la déclenche, et elle écraserait l'état « encours » — la
+ * progression disparaîtrait à la réouverture du menu.
+ */
+async function rafraichir(client: QueryClient, ids: number[]) {
+  if (ids.length === 0 || controleur) return
+
+  const { fiches, images, combat, combatRequis } = await mesurer(client, ids)
+  const imagesRequises = serviceWorkerActif() ? ids.length : 0
+
+  publier({
+    etat:
       fiches >= ids.length && images >= imagesRequises && combat >= combatRequis
         ? 'complet'
         : 'partiel',
-    )
-  }, [client, ids])
+  })
+}
 
-  useEffect(() => {
-    void rafraichir()
-  }, [rafraichir])
-
-  useEffect(() => () => controleur.current?.abort(), [])
-
-  const annuler = useCallback(() => controleur.current?.abort(), [])
-
-  const lancer = useCallback(async () => {
-    if (ids.length === 0 || controleur.current) return
+async function lancerTelechargement(client: QueryClient, ids: number[]) {
+    if (ids.length === 0 || controleur) return
 
     const abandon = new AbortController()
-    controleur.current = abandon
-    setBloque(false)
+    controleur = abandon
+    publier({ bloque: false })
 
     /*
      * On ne planifie que ce qui manque vraiment. Parcourir aussi ce qui est
@@ -303,7 +348,7 @@ export function useOfflineDownload(ids: number[]) {
     }
 
     if (abandon.signal.aborted) {
-      controleur.current = null
+      controleur = null
       return
     }
 
@@ -401,11 +446,10 @@ export function useOfflineDownload(ids: number[]) {
     const total = combat.length + donnees.length + images.length
     const rapport: Rapport = { fait: 0, echecs: 0, bloque: false }
 
-    setProgression({ fait: 0, total, echecs: 0 })
-    setEtat('encours')
+    publier({ progression: { fait: 0, total, echecs: 0 }, etat: 'encours' })
 
     const battement = window.setInterval(
-      () => setProgression({ fait: rapport.fait, total, echecs: rapport.echecs }),
+      () => publier({ progression: { fait: rapport.fait, total, echecs: rapport.echecs } }),
       PERIODE_RAFRAICHISSEMENT,
     )
 
@@ -433,23 +477,49 @@ export function useOfflineDownload(ids: number[]) {
       }
     } finally {
       window.clearInterval(battement)
-      setProgression({ fait: rapport.fait, total, echecs: rapport.echecs })
-      setBloque(rapport.bloque)
-      controleur.current = null
-      await rafraichir()
+      publier({
+        progression: { fait: rapport.fait, total, echecs: rapport.echecs },
+        bloque: rapport.bloque,
+      })
+      controleur = null
+      await rafraichir(client, ids)
     }
-  }, [client, ids, rafraichir])
+}
 
-  const pourcentage =
-    progression.total === 0 ? 0 : Math.round((progression.fait / progression.total) * 100)
+/* ------------------------------------------------------------------ *
+ * Lecture depuis React
+ * ------------------------------------------------------------------ */
+
+export function useOfflineDownload(ids: number[]) {
+  const client = useQueryClient()
+  const vue = useSyncExternalStore(souscrire, lire, lire)
+
+  useEffect(() => {
+    void rafraichir(client, ids)
+  }, [client, ids])
+
+  const lancer = useCallback(() => lancerTelechargement(client, ids), [client, ids])
+  const annuler = useCallback(() => controleur?.abort(), [])
 
   return {
-    etat,
-    progression,
-    pourcentage,
-    bloque,
+    etat: vue.etat,
+    progression: vue.progression,
+    pourcentage: pourcentageDe(vue.progression),
+    bloque: vue.bloque,
     lancer,
     annuler,
     avecImages: serviceWorkerActif(),
   }
+}
+
+/**
+ * Lecture seule de l'avancement, sans mesure ni identifiants.
+ *
+ * Pour l'afficher là où le bouton n'est pas — sur la commande du menu quand
+ * celui-ci est fermé, faute de quoi un téléchargement lancé puis replié
+ * n'aurait plus aucun signe extérieur.
+ */
+export function useProgressionHorsLigne() {
+  const vue = useSyncExternalStore(souscrire, lire, lire)
+  return { enCours: vue.etat === 'encours', pourcentage: pourcentageDe(vue.progression) }
 }
