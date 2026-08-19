@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { Link } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { ActionPanel, ListeRemplacants } from '@/components/battle/ActionPanel'
 import { DUREE_EFFET } from '@/components/battle/AttackEffect'
 import type { Effet } from '@/components/battle/AttackEffect'
@@ -10,39 +10,25 @@ import { DUREE_JAUGE } from '@/components/battle/HealthBar'
 import { PassScreen } from '@/components/battle/PassScreen'
 import { TeamPicker } from '@/components/battle/TeamPicker'
 import { ErrorScreen, LoadingScreen } from '@/components/ui/StateScreens'
-import { ArrowLeftIcon, PokeballIcon } from '@/components/ui/icons'
-import { useBattleForms } from '@/hooks/use-forms'
-import { useMoves, useMovesets } from '@/hooks/use-moves'
-import { useNomsJoueurs } from '@/hooks/use-noms-joueurs'
-import { usePokedex } from '@/hooks/use-pokedex'
-import { useTapLock } from '@/hooks/use-tap-lock'
 import {
-  actif,
-  creerBattler,
-  creerCombat,
-  prochainEcran,
-  remplacer,
-  remplacantsDisponibles,
-  resoudreTour,
-} from '@/lib/battle/engine'
-import { estMuet, texteEvenement } from '@/lib/battle/log'
-import { ecrire, effacer, lire, reprendre } from '@/lib/battle/save'
+  ArrowLeftIcon,
+  ChipIcon,
+  LinkIcon,
+  PokeballIcon,
+  UsersIcon,
+} from '@/components/ui/icons'
+import { useCombat } from '@/hooks/use-combat'
+import { useTapLock } from '@/hooks/use-tap-lock'
+import { actif, remplacantsDisponibles } from '@/lib/battle/engine'
+import { estMuet } from '@/lib/battle/log'
+import { CHEMIN, LIBELLE, modeDepuisSegment } from '@/lib/battle/modes'
 import type { Noms } from '@/lib/battle/noms'
-import { graineAleatoire } from '@/lib/battle/rng'
-import type {
-  Action,
-  BattleEvent,
-  BattleState,
-  Choix,
-  Ecran,
-  Passage,
-  Side,
-  Team,
-} from '@/lib/battle/types'
+import { lire } from '@/lib/battle/save'
+import type { Action, BattleState, Ecran, Mode, Side } from '@/lib/battle/types'
 import type { TypeChart } from '@/lib/type-chart'
 
 /* ------------------------------------------------------------------ *
- * Écrans
+ * Rythme du récit
  * ------------------------------------------------------------------ */
 
 /** Le temps de laisser l'œil se poser sur la valeur d'arrivée de la jauge. */
@@ -55,219 +41,136 @@ const MARGE_JAUGE = 150
  */
 const PLANCHER_MUET = 250
 
-/**
- * Rejoue un événement sur l'état affiché. L'interface ne saute pas
- * directement à l'état final du tour : elle le reconstruit pas à pas, ce
- * qui fait descendre les barres de vie au moment où la phrase
- * correspondante s'affiche.
- */
-function appliquer(etat: BattleState, event: BattleEvent): BattleState {
-  if (event.kind === 'switch') {
-    const teams = [...etat.teams] as [Team, Team]
-    teams[event.side] = { ...teams[event.side], active: event.toIndex }
-    return { ...etat, teams }
-  }
-
-  if (event.kind === 'damage') {
-    const cible = (1 - event.side) as Side
-    const equipe = etat.teams[cible]
-    const teams = [...etat.teams] as [Team, Team]
-    teams[cible] = {
-      ...equipe,
-      battlers: equipe.battlers.map((battler, index) =>
-        index === equipe.active ? { ...battler, hp: event.hp } : battler,
-      ),
-    }
-    return { ...etat, teams }
-  }
-
-  return etat
-}
-
 /* ------------------------------------------------------------------ *
  * Page
  * ------------------------------------------------------------------ */
 
+/**
+ * L'entrée du mode combat : la sélection du mode, ou la partie elle-même.
+ *
+ * Le mode est un segment d'URL et non un état interne — c'est ce qui rend
+ * une partie partageable par lien, et le retour arrière du navigateur
+ * cohérent avec ce qu'on voit.
+ */
 export function BattlePage() {
-  const { pokemon, byId, chart, isPending, isError, error, refetch } = usePokedex()
-  const { noms } = useNomsJoueurs()
-  const { byId: movesById, isPending: movesPending, isError: movesError } = useMoves()
-  /*
-   * Les formes ne bloquent pas le combat : sans la table, la sélection ne
-   * propose que les espèces par défaut et tout le reste fonctionne. Les
-   * attendre ferait dépendre un mode entier d'une requête accessoire.
-   */
-  const { parEspece: formesParEspece } = useBattleForms(byId)
+  const { mode: segment } = useParams()
+  const mode = modeDepuisSegment(segment)
 
-  /*
-   * La partie sauvegardée, lue une seule fois au montage.
-   *
-   * `localStorage` est synchrone, et c'est précisément ce qu'on veut ici :
-   * l'état est là dès le premier rendu. Avec IndexedDB — le stockage retenu
-   * pour le dex, parce que les fiches n'y tenaient pas — il faudrait un
-   * écran d'attente, et le sélecteur d'équipe apparaîtrait une fraction de
-   * seconde avant que le combat ne revienne. Onze kilo-octets sur cinq
-   * mégas : la contrainte qui avait fait fuir localStorage ne s'applique pas.
-   */
-  const [reprise] = useState(() => {
-    const sauve = lire()
-    return sauve ? { sauve, ...reprendre(sauve) } : null
-  })
+  if (!mode) return <ChoixMode />
+  return <Partie key={mode} mode={mode} />
+}
 
-  /*
-   * Les deux équipes sont stockées séparément, et `equipes` n'existe que
-   * lorsque les deux sont complètes. Conserver un couple à moitié rempli
-   * ferait démarrer la construction du combat dès le premier joueur, avec
-   * une équipe adverse vide.
-   */
-  const [equipe1, setEquipe1] = useState<Choix[] | null>(reprise?.sauve.equipe1 ?? null)
-  const [equipe2, setEquipe2] = useState<Choix[] | null>(reprise?.sauve.equipe2 ?? null)
-  const equipes = useMemo(
-    () => (equipe1 && equipe2 ? ([equipe1, equipe2] as [Choix[], Choix[]]) : null),
-    [equipe1, equipe2],
+/* ------------------------------------------------------------------ *
+ * Choix du mode
+ * ------------------------------------------------------------------ */
+
+const ICONE: Record<Mode, (props: { className?: string }) => ReactNode> = {
+  ligne: LinkIcon,
+  duo: UsersIcon,
+  ia: ChipIcon,
+}
+
+function CarteMode({ mode, bientot = false }: { mode: Mode; bientot?: boolean }) {
+  const Icone = ICONE[mode]
+  const { titre, detail } = LIBELLE[mode]
+
+  const contenu = (
+    <>
+      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-accent/12 text-accent">
+        <Icone className="size-5.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-bold text-ink">{titre}</span>
+        <span className="block text-ink-faint text-sm">{detail}</span>
+      </span>
+      {bientot && (
+        <span className="shrink-0 rounded-full border border-line px-2 py-0.5 font-semibold text-ink-faint text-xs">
+          Bientôt
+        </span>
+      )}
+    </>
   )
 
-  const [etat, setEtat] = useState<BattleState | null>(reprise?.sauve.etat ?? null)
-  const [affiche, setAffiche] = useState<BattleState | null>(reprise?.sauve.etat ?? null)
+  const habillage =
+    'flex w-full items-center gap-3 rounded-2xl border border-line bg-panel-soft p-4 text-left transition'
 
-  const [ecran, setEcran] = useState<Ecran>(reprise?.ecran ?? { kind: 'equipe', joueur: 1 })
-  const [passage, setPassage] = useState<Passage | null>(reprise?.passage ?? null)
-
-  const [enAttente, setEnAttente] = useState<Action | null>(null)
-  /**
-   * Le récit du tour, et l'étape à l'écran. Le rejeu n'avance plus au
-   * chronomètre mais à la tape : le joueur 2 vient de choisir son attaque
-   * et ne s'attendait pas à la réponse, il lui faut le temps de la lire.
-   *
-   * Une étape par événement. On tape pour ce qu'on lit ; ce qu'on regarde
-   * s'enchaîne seul — la jauge qui se vide est déclenchée par la tape
-   * donnée sur l'annonce de l'attaque, et n'a rien de nouveau à faire lire
-   * une fois arrivée.
-   */
-  const [evenements, setEvenements] = useState<BattleEvent[]>([])
-  const [curseur, setCurseur] = useState(0)
-  /*
-   * Le récit n'est pas sauvegardé : à la reprise il n'y a aucune réplique à
-   * réafficher, et le repli d'origine — « Le combat commence ! » — mentirait
-   * sur une partie retrouvée au huitième tour.
-   */
-  const [message, setMessage] = useState<string | null>(
-    reprise?.sauve.etat ? 'Reprise du combat.' : null,
-  )
-  const [impact, setImpact] = useState<Side | null>(null)
-
-  /*
-   * On demande les capacités de l'espèce **et** de la forme retenue. Les
-   * deux sont nécessaires : le vivier propre à une forme est souvent
-   * incomplet — 50 des 219 formes jouables n'en ont aucun dans l'API, dont
-   * toutes les Méga de Legends Z-A — mais 32 sont les seules à porter une
-   * attaque de leur nouveau type, comme les formes d'Alola.
-   *
-   * Le coût est nul : la requête prend déjà une liste, et douze
-   * identifiants tiennent dans le même aller-retour que six.
-   */
-  const idsEquipes = useMemo(() => {
-    // Un combat repris porte déjà ses combattants tout montés — types,
-    // statistiques et quatre attaques comprises. La reprise ne redemande
-    // donc rien au réseau.
-    if (!equipes || etat) return []
-    const ids = [...equipes[0], ...equipes[1]].flatMap((choix) =>
-      choix.formId ? [choix.speciesId, choix.formId] : [choix.speciesId],
+  if (bientot) {
+    return (
+      <div aria-disabled="true" className={`${habillage} opacity-50`}>
+        {contenu}
+      </div>
     )
-    return [...new Set(ids)]
-  }, [equipes, etat])
+  }
 
+  return (
+    <Link to={CHEMIN(mode)} className={`${habillage} hover:border-ink-faint hover:bg-panel`}>
+      {contenu}
+    </Link>
+  )
+}
+
+function ChoixMode() {
+  /*
+   * Une seule partie est gardée à la fois, et elle appartient à son mode.
+   * La proposer ici plutôt que dans la partie elle-même évite le piège de
+   * l'ouverture : entrer dans un mode ne doit pas reprendre d'autorité une
+   * partie qu'on avait peut-être abandonnée.
+   */
+  const [sauvegarde] = useState(() => lire())
+
+  return (
+    <Cadre>
+      <h1 className="mb-1 font-black text-2xl text-ink">Combat</h1>
+      <p className="mb-5 text-ink-faint text-sm">
+        Trois Pokémon chacun, au niveau 50. Choisis ton adversaire.
+      </p>
+
+      <div className="space-y-2.5">
+        <CarteMode mode="ligne" bientot />
+        <CarteMode mode="duo" />
+        <CarteMode mode="ia" />
+      </div>
+
+      {sauvegarde && (
+        <div className="mt-6 rounded-2xl border border-accent/30 bg-accent/8 p-4">
+          <p className="font-bold text-ink">Une partie est en cours</p>
+          <p className="mb-3 text-ink-faint text-sm">
+            {LIBELLE[sauvegarde.mode].titre}
+            {sauvegarde.etat ? ` — tour ${sauvegarde.etat.turn}` : ' — équipes en préparation'}
+          </p>
+          <Link
+            to={CHEMIN(sauvegarde.mode)}
+            className="inline-flex rounded-full bg-accent px-4 py-2 font-bold text-sm text-white"
+          >
+            Reprendre
+          </Link>
+        </div>
+      )}
+    </Cadre>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * La partie
+ * ------------------------------------------------------------------ */
+
+function Partie({ mode }: { mode: Mode }) {
+  const combat = useCombat(mode)
   const {
-    movesets,
-    isError: movesetsError,
-    refetch: rechargerCapacites,
-  } = useMovesets(idsEquipes)
-
-  /* --- Construction du combat une fois les capacités reçues --------- */
-  useEffect(() => {
-    if (etat || !equipes || !movesets || !movesById || !byId) return
-
-    const monter = (choisis: Choix[]) =>
-      choisis.flatMap((choix) => {
-        const summary = byId.get(choix.speciesId)
-        if (!summary) return []
-
-        const forme = choix.formId
-          ? (formesParEspece?.get(choix.speciesId)?.find((f) => f.id === choix.formId) ?? null)
-          : null
-
-        const apprises = [
-          ...new Set([
-            ...(movesets[choix.speciesId] ?? []),
-            ...(choix.formId ? (movesets[choix.formId] ?? []) : []),
-          ]),
-        ]
-
-        return [creerBattler(summary, forme, choix.shiny, apprises, movesById)]
-      })
-
-    const combat = creerCombat([monter(equipes[0]), monter(equipes[1])], graineAleatoire())
-    setEtat(combat)
-    setAffiche(combat)
-    setPassage({ vers: 1, ecran: { kind: 'choix', side: 0 }, detail: 'Le combat commence !' })
-  }, [etat, equipes, movesets, movesById, byId, formesParEspece])
-
-  /* --- Sauvegarde de la partie -------------------------------------- */
-  useEffect(() => {
-    // Avant l'équipe du joueur 1, il n'y a rien à retenir.
-    if (!equipe1) return
-    ecrire({ equipe1, equipe2, etat, ecran, passage })
-  }, [equipe1, equipe2, etat, ecran, passage])
-
-  /* --- Enchaînement après un tour ou un remplacement ---------------- */
-  const enchainer = useCallback((courant: BattleState) => {
-    const suite = prochainEcran(courant)
-    /*
-     * Avec un passage, l'écran courant reste dessous jusqu'à la tape : c'est
-     * lui qui révélera `suite.ecran`. Sans passage — la fin du combat — il
-     * n'y a rien à cacher, on y va directement.
-     */
-    if (suite.passage) setPassage(suite.passage)
-    else setEcran(suite.ecran)
-  }, [])
-
-  /* --- Rejeu du récit, au rythme du joueur -------------------------- */
-  useEffect(() => {
-    if (ecran.kind !== 'replay') return
-
-    const event = evenements[curseur]
-    if (!event) return
-
-    // Les dégâts n'ont pas de phrase : la ligne précédente reste affichée
-    // pendant que la jauge se vide, comme dans les jeux.
-    const texte = texteEvenement(event, noms)
-    if (texte) setMessage(texte)
-
-    setAffiche((precedent) => (precedent ? appliquer(precedent, event) : precedent))
-    setImpact(event.kind === 'damage' ? ((1 - event.side) as Side) : null)
-  }, [ecran, curseur, evenements, noms])
-
-  /** Une tape fait avancer d'un événement, et clôt le rejeu au dernier. */
-  const avancerRecit = useCallback(() => {
-    /*
-     * La surface reste montée sous l'écran de passage, qui la recouvre
-     * entièrement. Un doigt ne peut donc plus l'atteindre — mais le clavier,
-     * lui, le peut : sans cette garde, une barre d'espace de trop reposerait
-     * l'écran de passage déjà en place.
-     */
-    if (!etat || passage) return
-
-    if (curseur + 1 < evenements.length) {
-      setCurseur((valeur) => valeur + 1)
-      return
-    }
-
-    // Resynchronisation complète : le rejeu ne reconstitue que les PV et
-    // les changements, pas les PP consommés.
-    setAffiche(etat)
-    setImpact(null)
-    enchainer(etat)
-  }, [curseur, evenements.length, etat, passage, enchainer])
+    pokemon,
+    chart,
+    formesParEspece,
+    noms,
+    ecran,
+    passage,
+    enPreparation,
+    etat,
+    affiche,
+    evenements,
+    curseur,
+    message,
+    impact,
+  } = combat
 
   /* --- Enchaînement des étapes muettes ------------------------------ */
   const reduit = useReducedMotion()
@@ -297,6 +200,7 @@ export function BattlePage() {
       : null
 
   const avecGeste = effet !== null
+  const { avancerRecit } = combat
 
   useEffect(() => {
     if (!etapeMuette) return
@@ -314,78 +218,8 @@ export function BattlePage() {
     return () => window.clearTimeout(minuteur)
   }, [etapeMuette, curseur, reduit, avecGeste, avancerRecit])
 
-  /* --- Actions ------------------------------------------------------- */
-  const choisirEquipe = (choisis: Choix[]) => {
-    if (ecran.kind !== 'equipe') return
-
-    if (ecran.joueur === 1) {
-      setEquipe1(choisis)
-      setPassage({ vers: 2, ecran: { kind: 'equipe', joueur: 2 }, detail: 'Compose ton équipe' })
-    } else {
-      // Les capacités des six Pokémon partent alors en une seule requête,
-      // et l'effet de construction enchaîne sur l'écran de passage.
-      setEquipe2(choisis)
-    }
-  }
-
-  const choisirAction = (action: Action) => {
-    if (ecran.kind !== 'choix' || !etat || !chart) return
-
-    if (ecran.side === 0) {
-      setEnAttente(action)
-      setPassage({ vers: 2, ecran: { kind: 'choix', side: 1 } })
-      return
-    }
-
-    const actions: [Action, Action] = [enAttente ?? { kind: 'move', slot: 0 }, action]
-    const resultat = resoudreTour(etat, actions, chart)
-
-    setAffiche(etat)
-    setEtat(resultat.etat)
-    setEvenements(resultat.events)
-    setCurseur(0)
-    setEnAttente(null)
-    setEcran({ kind: 'replay' })
-  }
-
-  const choisirRemplacant = (index: number) => {
-    if (ecran.kind !== 'remplacement' || !etat) return
-
-    const resultat = remplacer(etat, ecran.side, index)
-    const premier = resultat.events[0]
-
-    setEtat(resultat.etat)
-    setAffiche(resultat.etat)
-    if (premier) setMessage(texteEvenement(premier, noms))
-    enchainer(resultat.etat)
-  }
-
-  const rejouer = (memesEquipes: boolean) => {
-    // La partie sauvegardée disparaît d'abord : sans péremption, c'est
-    // « Rejouer » et « Quitter » qui la libèrent, et rien d'autre.
-    effacer()
-    setEtat(null)
-    setAffiche(null)
-    setEvenements([])
-    setCurseur(0)
-    setMessage(null)
-    setImpact(null)
-    setEnAttente(null)
-    setPassage(null)
-
-    if (memesEquipes) {
-      // Rien d'autre à faire : `etat` repassé à null réveille l'effet de
-      // construction, qui remonte les équipes et repose l'écran de passage.
-      setEcran({ kind: 'choix', side: 0 })
-    } else {
-      setEquipe1(null)
-      setEquipe2(null)
-      setEcran({ kind: 'equipe', joueur: 1 })
-    }
-  }
-
   /* --- Rendu --------------------------------------------------------- */
-  if (isPending || movesPending) {
+  if (combat.chargement) {
     return (
       <Cadre>
         <LoadingScreen label="Préparation du combat…" />
@@ -393,13 +227,10 @@ export function BattlePage() {
     )
   }
 
-  if (isError || movesError) {
+  if (combat.erreur !== null) {
     return (
       <Cadre>
-        <ErrorScreen
-          message={error instanceof Error ? error.message : 'Chargement impossible'}
-          onRetry={() => void refetch()}
-        />
+        <ErrorScreen message={combat.erreur ?? 'Chargement impossible'} onRetry={() => void combat.recharger()} />
       </Cadre>
     )
   }
@@ -408,19 +239,6 @@ export function BattlePage() {
 
   const enPassage = passage !== null
 
-  /*
-   * Les deux équipes sont composées : la sélection n'a plus lieu d'être,
-   * même si `ecran` la désigne encore — c'est le montage du combat qui le
-   * fera changer, et il attend les capacités.
-   *
-   * Sans ce relais, un joueur 2 qui validait son équipe sans que les
-   * capacités puissent arriver — hors ligne, dex non téléchargé — restait
-   * devant sa grille avec un bouton « Équipe prête » qui ne produisait rien
-   * de visible. L'erreur existait déjà ; elle n'avait simplement nulle part
-   * où s'afficher.
-   */
-  const enPreparation = ecran.kind === 'equipe' && equipes !== null
-
   return (
     <div className="min-h-dvh">
       {enPassage && (
@@ -428,10 +246,7 @@ export function BattlePage() {
           player={passage.vers}
           nom={noms[passage.vers - 1]}
           detail={passage.detail}
-          onReady={() => {
-            setEcran(passage.ecran)
-            setPassage(null)
-          }}
+          onReady={combat.franchirPassage}
         />
       )}
 
@@ -444,7 +259,7 @@ export function BattlePage() {
             pokemon={pokemon}
             player={ecran.joueur}
             formes={formesParEspece}
-            onDone={choisirEquipe}
+            onDone={combat.choisirEquipe}
           />
         )}
 
@@ -458,14 +273,14 @@ export function BattlePage() {
         {(ecran.kind !== 'equipe' || enPreparation) &&
           (!affiche || !etat ? (
             <Cadre>
-              {movesetsError ? (
+              {combat.capacitesEnErreur ? (
                 <ErrorScreen
                   message={
                     navigator.onLine
                       ? 'Impossible de charger les attaques des Pokémon choisis.'
                       : "Hors ligne, et les attaques de ces Pokémon ne sont pas dans ce qui a été téléchargé. Télécharge le dex depuis l'accueil, ou reconnecte-toi."
                   }
-                  onRetry={() => void rechargerCapacites()}
+                  onRetry={() => void combat.rechargerCapacites()}
                 />
               ) : (
                 <LoadingScreen label="Préparation du combat…" />
@@ -474,6 +289,7 @@ export function BattlePage() {
           ) : (
             <Combat
               ecran={ecran}
+              moi={combat.moi}
               affiche={affiche}
               etat={etat}
               chart={chart}
@@ -484,9 +300,9 @@ export function BattlePage() {
               curseur={curseur}
               attendTape={ecran.kind === 'replay' && !etapeMuette}
               onAvancer={avancerRecit}
-              onAction={choisirAction}
-              onRemplacer={choisirRemplacant}
-              onRejouer={rejouer}
+              onAction={combat.choisirAction}
+              onRemplacer={combat.choisirRemplacant}
+              onRejouer={combat.rejouer}
             />
           ))}
       </div>
@@ -573,6 +389,11 @@ function EnTete({ tour, onQuitter }: { tour?: number; onQuitter?: () => void }) 
 
 type CombatProps = {
   ecran: Ecran
+  /**
+   * Le camp que tient l'appareil, `null` quand il les tient tous les deux.
+   * C'est lui qui décide de quel côté du terrain on se place.
+   */
+  moi: Side | null
   affiche: BattleState
   etat: BattleState
   chart: TypeChart | undefined
@@ -596,6 +417,7 @@ type CombatProps = {
 
 function Combat({
   ecran,
+  moi,
   affiche,
   etat,
   chart,
@@ -621,12 +443,18 @@ function Combat({
    */
   const arme = useTapLock(`${ecran.kind}-${curseur}`)
   /*
-   * Chaque joueur voit son propre Pokémon de dos, en bas. Pendant le rejeu
-   * et à la fin, on garde la vue du joueur 1 : les deux regardent l'écran
-   * ensemble, et faire pivoter la scène serait désorientant.
+   * Chaque joueur voit son propre Pokémon de dos, en bas.
+   *
+   * Sur un téléphone partagé, la scène pivote donc au fil des écrans —
+   * sauf pendant le rejeu et à la fin, où l'on garde la vue du joueur 1 :
+   * les deux regardent l'écran ensemble, et faire tourner le terrain
+   * pendant qu'ils lisent serait désorientant.
+   *
+   * Dès qu'un camp appartient à l'appareil — solo, ou en ligne — la scène
+   * ne pivote plus jamais : on est toujours en bas de son propre terrain.
    */
   const perspective: Side =
-    ecran.kind === 'choix' || ecran.kind === 'remplacement' ? ecran.side : 0
+    moi ?? (ecran.kind === 'choix' || ecran.kind === 'remplacement' ? ecran.side : 0)
   const adverse = (1 - perspective) as Side
 
   const vue = (side: Side) => ({

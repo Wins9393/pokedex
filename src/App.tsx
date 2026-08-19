@@ -20,8 +20,19 @@ export default function App() {
           reste montée derrière, donc le scroll et les filtres survivent. */}
       <Route path="/" element={<PokedexPage />} />
       <Route path="/pokemon/:id" element={<PokedexPage />} />
+      {/* Sans segment, la page propose les trois modes ; avec, elle joue
+          celui-là. Même composant, donc un seul chunk à charger et une
+          navigation instantanée entre la sélection et la partie. */}
       <Route
         path="/combat"
+        element={
+          <Suspense fallback={<LoadingScreen label="Chargement du mode combat…" />}>
+            <BattlePage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/combat/:mode"
         element={
           <Suspense fallback={<LoadingScreen label="Chargement du mode combat…" />}>
             <BattlePage />

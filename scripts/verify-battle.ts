@@ -745,7 +745,14 @@ console.log('\nSauvegarde et reprise')
   const equipe2 = [{ speciesId: 3, formId: null, shiny: false }]
   const combat = creerCombat([[battler(6)], [battler(3)]], 4242)
 
-  ecrire({ equipe1, equipe2, etat: combat, ecran: { kind: 'choix', side: 0 }, passage: null })
+  ecrire({
+    mode: 'duo',
+    equipe1,
+    equipe2,
+    etat: combat,
+    ecran: { kind: 'choix', side: 0 },
+    passage: null,
+  })
   const relu = lire()
 
   ok('une partie écrite se relit', relu !== null)
@@ -802,9 +809,15 @@ console.log('\nSauvegarde et reprise')
   const attendu = prochainEcran(relu!.etat!)
   ok(
     'un rejeu interrompu reprend là où le tour s’achève',
-    JSON.stringify(enRejeu.passage) === JSON.stringify(attendu.passage),
+    JSON.stringify(enRejeu.ecran) === JSON.stringify(attendu),
     'le tour n’est pas perdu, seulement sa narration',
   )
+
+  /*
+   * Le mode fait partie de la partie. Sans lui, une partie à deux reprise
+   * depuis le mode solo ferait jouer l'IA à la place du joueur 2.
+   */
+  ok('la sauvegarde retient contre qui on joue', relu!.mode === 'duo')
 
   /* La leçon du vivier d'attaques : une donnée d'hier ne doit rien casser. */
   memoire.set('pokedex:combat', JSON.stringify({ version: VERSION + 1, equipe1, etat: combat }))
@@ -815,9 +828,22 @@ console.log('\nSauvegarde et reprise')
 
   memoire.set(
     'pokedex:combat',
-    JSON.stringify({ version: VERSION, equipe1, equipe2, etat: { teams: [] }, ecran: { kind: 'fin' } }),
+    JSON.stringify({
+      version: VERSION,
+      mode: 'duo',
+      equipe1,
+      equipe2,
+      etat: { teams: [] },
+      ecran: { kind: 'fin' },
+    }),
   )
   ok('une sauvegarde à la mauvaise allure est jetée', lire() === null)
+
+  memoire.set(
+    'pokedex:combat',
+    JSON.stringify({ version: VERSION, equipe1, equipe2, etat: combat, ecran: { kind: 'fin' } }),
+  )
+  ok('une sauvegarde sans mode est jetée', lire() === null)
 
   effacer()
   ok('« Quitter » ne laisse rien derrière lui', lire() === null)
@@ -862,7 +888,52 @@ console.log('\nCombat complet 3 contre 3')
   )
 }
 
-/* 14. L'adversaire du mode solo ---------------------------------------- */
+/* 14. Ce que le mode de jeu change, et lui seul ------------------------- */
+console.log('\nModes de jeu')
+{
+  const { passagePour, aMoiDeJouer, modeDepuisSegment, CHEMIN } = await import(
+    '@/lib/battle/modes'
+  )
+
+  const choixJoueur2 = { kind: 'choix' as const, side: 1 as const }
+
+  ok(
+    'sur un téléphone partagé, on passe la main',
+    passagePour(choixJoueur2, 'duo')?.vers === 2,
+  )
+  ok(
+    "contre l'IA, il n'y a personne à qui la passer",
+    passagePour(choixJoueur2, 'ia') === null,
+  )
+  ok(
+    "en ligne non plus : chacun n'a que ses propres écrans",
+    passagePour(choixJoueur2, 'ligne') === null,
+  )
+
+  ok(
+    "en duo l'appareil répond des deux camps",
+    aMoiDeJouer(choixJoueur2, 'duo', 0) && aMoiDeJouer({ kind: 'choix', side: 0 }, 'duo', 0),
+  )
+  ok(
+    "ailleurs il ne répond que du sien",
+    !aMoiDeJouer(choixJoueur2, 'ia', 0) && !aMoiDeJouer({ kind: 'choix', side: 0 }, 'ligne', 1),
+  )
+
+  ok(
+    "un écran sans acteur n'attend personne",
+    aMoiDeJouer({ kind: 'replay' }, 'ligne', 1) && aMoiDeJouer({ kind: 'fin' }, 'ia', 0),
+  )
+
+  ok(
+    'chaque mode a son adresse, et elle se relit',
+    (['duo', 'ia', 'ligne'] as const).every(
+      (mode) => modeDepuisSegment(CHEMIN(mode).split('/').pop()) === mode,
+    ),
+  )
+  ok('une adresse inconnue ne donne aucun mode', modeDepuisSegment('poubelle') === null)
+}
+
+/* 15. L'adversaire du mode solo ---------------------------------------- */
 console.log("\nAdversaire contrôlé par l'IA")
 {
   /*
@@ -1020,7 +1091,7 @@ console.log("\nAdversaire contrôlé par l'IA")
   }
 }
 
-/* 15. Ce que le cache de requêtes garde d'une session à l'autre --------- */
+/* 16. Ce que le cache de requêtes garde d'une session à l'autre --------- */
 console.log('\nCaches durables')
 {
   /*

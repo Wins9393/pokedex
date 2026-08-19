@@ -1,5 +1,6 @@
 import { prochainEcran } from './engine'
-import type { BattleState, Choix, Ecran, Passage } from './types'
+import { passagePour } from './modes'
+import type { BattleState, Choix, Ecran, Mode, Passage } from './types'
 
 const CLE = 'pokedex:combat'
 
@@ -10,8 +11,11 @@ const CLE = 'pokedex:combat'
  * forme. Une sauvegarde d'hier suffit à casser le code d'aujourd'hui — on
  * vient de le payer avec le vivier d'attaques, dont les entrées en cache
  * n'avaient pas d'archétype et faisaient tomber l'arène.
+ *
+ * Passée à 2 avec l'arrivée des modes de jeu : une partie d'avant ne dit
+ * pas contre qui elle se jouait.
  */
-export const VERSION = 1
+export const VERSION = 2
 
 /**
  * Le combat en cours, tel qu'il est écrit sur le disque.
@@ -32,6 +36,12 @@ export const VERSION = 1
  */
 export type CombatSauve = {
   version: number
+  /**
+   * Contre qui la partie se joue. Sans lui, une partie à deux reprise
+   * depuis le mode solo ferait jouer l'IA à la place du joueur 2 — et une
+   * seule partie est gardée, celle qu'on a commencée en dernier.
+   */
+  mode: Mode
   /**
    * L'équipe du joueur 1, et le déclencheur de toute sauvegarde : avant
    * elle il n'y a rien à retenir. La composition *en cours* du joueur 1 vit
@@ -76,7 +86,7 @@ export function lire(): CombatSauve | null {
 
     const valeur = JSON.parse(brut) as Partial<CombatSauve>
     if (valeur.version !== VERSION) return null
-    if (!valeur.ecran || !valeur.equipe1?.length) return null
+    if (!valeur.mode || !valeur.ecran || !valeur.equipe1?.length) return null
 
     if (valeur.etat) {
       if (valeur.etat.teams?.length !== 2) return null
@@ -105,11 +115,11 @@ export function lire(): CombatSauve | null {
  *   qu'on n'a pas donné.
  */
 export function reprendre(sauve: CombatSauve): { ecran: Ecran; passage: Passage | null } {
-  const { etat, ecran, passage } = sauve
+  const { etat, ecran, passage, mode } = sauve
 
   if (etat && ecran.kind === 'replay') {
-    const suite = prochainEcran(etat)
-    return { ecran: suite.passage ? suite.passage.ecran : suite.ecran, passage: suite.passage }
+    const suivant = prochainEcran(etat)
+    return { ecran: suivant, passage: passagePour(suivant, mode) }
   }
 
   const viseLeSecond =
@@ -118,7 +128,11 @@ export function reprendre(sauve: CombatSauve): { ecran: Ecran; passage: Passage 
 
   if (viseLeSecond) {
     const depart: Ecran = { kind: 'choix', side: 0 }
-    return { ecran: depart, passage: { vers: 1, ecran: depart, detail: 'Reprise du tour' } }
+    const rembobinage = passagePour(depart, mode)
+    return {
+      ecran: depart,
+      passage: rembobinage ? { ...rembobinage, detail: 'Reprise du tour' } : null,
+    }
   }
 
   return { ecran, passage }

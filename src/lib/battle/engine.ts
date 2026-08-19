@@ -5,16 +5,7 @@ import { choisirAttaques, LUTTE } from './moveset'
 import { createRng } from './rng'
 import type { Rng } from './rng'
 import { statsDeCombat } from './stats'
-import type {
-  Action,
-  BattleEvent,
-  BattleState,
-  Battler,
-  Ecran,
-  Passage,
-  Side,
-  Team,
-} from './types'
+import type { Action, BattleEvent, BattleState, Battler, Ecran, Side, Team } from './types'
 
 /* ------------------------------------------------------------------ *
  * Construction
@@ -81,26 +72,23 @@ export const doitRemplacer = (etat: BattleState, side: Side) =>
  * Ce qui doit s'afficher une fois un tour déroulé : fin de partie, choix
  * d'un remplaçant, ou tour suivant.
  *
- * Dans le moteur parce que deux appelants en ont besoin et doivent répondre
- * pareil — l'enchaînement après un tour, et la reprise d'une partie
- * sauvegardée. Une seconde implémentation dériverait, et une partie reprise
- * ne s'ouvrirait pas là où elle s'était arrêtée.
+ * Dans le moteur parce que trois appelants en ont besoin et doivent
+ * répondre pareil — l'enchaînement après un tour, la reprise d'une partie
+ * sauvegardée, et l'arbitre en ligne. Une seconde implémentation dériverait,
+ * et une partie reprise ne s'ouvrirait pas là où elle s'était arrêtée.
+ *
+ * C'est la **règle du jeu**, et rien d'autre : l'écran de passage qui la
+ * précède parfois n'existe que sur un téléphone partagé, et se décide donc
+ * dans `modes.ts`.
  */
-export function prochainEcran(etat: BattleState): { ecran: Ecran; passage: Passage | null } {
-  if (etat.winner !== null) return { ecran: { kind: 'fin' }, passage: null }
+export function prochainEcran(etat: BattleState): Ecran {
+  if (etat.winner !== null) return { kind: 'fin' }
 
   for (const side of [0, 1] as Side[]) {
-    if (doitRemplacer(etat, side)) {
-      const ecran: Ecran = { kind: 'remplacement', side }
-      return {
-        ecran,
-        passage: { vers: (side + 1) as 1 | 2, ecran, detail: 'Choisis ton prochain Pokémon' },
-      }
-    }
+    if (doitRemplacer(etat, side)) return { kind: 'remplacement', side }
   }
 
-  const ecran: Ecran = { kind: 'choix', side: 0 }
-  return { ecran, passage: { vers: 1, ecran } }
+  return { kind: 'choix', side: 0 }
 }
 
 export const remplacantsDisponibles = (etat: BattleState, side: Side) =>

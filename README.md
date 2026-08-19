@@ -64,9 +64,23 @@ de mégaoctets.
 
 ### Le mode combat
 
-Deux joueurs, un téléphone. Équipes de trois, changement possible au prix du tour, et des choix
-**simultanés** : chacun décide derrière un écran de passage, puis la Vitesse arbitre l'ordre — comme
-dans les jeux, où l'on ne sait pas ce que l'adversaire a choisi.
+Équipes de trois, changement possible au prix du tour, et des choix **simultanés** : chacun décide
+sans voir celui de l'autre, puis la Vitesse arbitre l'ordre — comme dans les jeux.
+
+Trois façons de jouer, une seule machine :
+
+| Mode | Qui joue en face | Où le tour se calcule |
+| --- | --- | --- |
+| **À deux sur ce téléphone** (`/combat/duo`) | La personne assise à côté, derrière un écran de passage | Ici |
+| **Contre le Dresseur** (`/combat/solo`) | `lib/battle/ia.ts` | Ici |
+| **En ligne** (`/combat/en-ligne`) | Un autre téléphone | Sur l'arbitre |
+
+Le mode ne change que trois choses, et elles vivent ensemble dans `lib/battle/modes.ts` : d'où vient
+l'équipe adverse, d'où vient son action, et faut-il passer le téléphone. Tout le reste — le récit
+rejoué à la tape, les jauges, la sauvegarde — est commun aux trois. C'est pour ça que la machine a
+été **sortie de la page** (`use-combat.ts`) : la page mélangeait deux métiers, elle affichait le
+combat *et* l'arbitrait, et tant que l'arbitrage vivait dans le rendu, chaque nouveau mode
+demandait de la réécrire.
 
 Le moteur est **une fonction pure, sans React** (`src/lib/battle/`). Il ne renvoie pas seulement
 l'état d'arrivée mais **le récit du tour** sous forme d'événements, que l'interface rejoue un par un.
@@ -75,6 +89,29 @@ permettra, le jour venu, de faire jouer deux téléphones en n'échangeant que l
 
 L'aléatoire passe par un générateur à graine. Sans lui le moteur serait intestable, et deux
 `Math.random()` indépendants feraient diverger deux écrans dès le deuxième tour.
+
+#### L'adversaire du mode solo
+
+Il ne triche pas : il ne lit que ce que le joueur voit lui aussi — les types affichés en face, les
+points de vie, ses propres attaques. Il **ignore les attaques adverses** et juge la menace d'en face
+sur ses seuls types, exactement comme on le fait en regardant les deux pastilles sous un nom.
+
+Pour estimer un coup sans le jouer, la formule de dégâts a été coupée en deux : le tirage reste dans
+`resoudreFrappe`, le calcul devient `degatsDeFrappe`, qui reçoit son hasard. L'IA lui donne une
+variation médiane et aucun critique. Une seconde formule « approchée » aurait dérivé de la vraie, et
+l'adversaire aurait joué sur des chiffres qui ne sont pas ceux du combat.
+
+Une décision sur cinq est le **deuxième** meilleur coup — jamais quand le meilleur met K.O. Un
+adversaire qui joue toujours l'optimum devient prévisible : on calcule sa réponse, et le combat
+devient un exercice.
+
+Son équipe se compose **en miroir de celle du joueur**, sur le total des statistiques de base :
+trois Pokémon de départ appellent trois Pokémon de départ, trois légendaires en appellent trois
+autres. C'est ce qui remplace un niveau de difficulté, sans aucune liste d'équipes à maintenir.
+
+La mesure qui compte est dans `verify:battle`, et elle n'est pas tautologique : **33 victoires sur
+40** contre un joueur qui tape au hasard. Sans elle, une IA cassée passerait tous les contrôles
+unitaires en jouant n'importe quoi dans les cas non prévus.
 
 **Le récit avance à la tape, pas au chronomètre**, comme dans les jeux. Le tour se résolvait en
 quatre secondes environ, ce qui suffit à lire chaque ligne *si on l'attendait* — or le joueur 2

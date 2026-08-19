@@ -122,3 +122,19 @@ export type Ecran =
 
 /** Écran de passage en attente : il masque l'écran suivant jusqu'au tap. */
 export type Passage = { vers: 1 | 2; ecran: Ecran; detail?: string }
+
+/**
+ * Les trois façons de jouer.
+ *
+ * Le moteur les ignore : un tour se résout de la même manière quel que
+ * soit l'endroit d'où viennent les deux actions. Ce que le mode décide,
+ * c'est **qui fournit celle de l'adversaire** et *où* le tour se calcule —
+ * sur ce téléphone, dans une fonction, ou sur un serveur.
+ */
+export type Mode =
+  /** Deux joueurs qui se passent le même téléphone. */
+  | 'duo'
+  /** Un joueur contre l'adversaire automatique. */
+  | 'ia'
+  /** Deux joueurs, deux téléphones, un arbitre au milieu. */
+  | 'ligne'

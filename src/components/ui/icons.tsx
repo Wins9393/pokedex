@@ -262,3 +262,56 @@ export const MenuIcon = ({ className = '' }: IconProps) => (
     <path d="M4 7h16M4 12h16M4 17h16" />
   </svg>
 )
+
+/** Deux joueurs autour du même appareil. */
+export const UsersIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3.5 19.5a5.5 5.5 0 0 1 11 0" />
+    <path d="M16.5 5.2a3.2 3.2 0 0 1 0 5.6" />
+    <path d="M18 14.4a5.5 5.5 0 0 1 2.5 5.1" />
+  </svg>
+)
+
+/** L'adversaire calculé : une puce, pas un visage. */
+export const ChipIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="7" y="7" width="10" height="10" rx="2" />
+    <path d="M10 3.5v2M14 3.5v2M10 18.5v2M14 18.5v2M3.5 10h2M3.5 14h2M18.5 10h2M18.5 14h2" />
+  </svg>
+)
+
+/** Deux appareils reliés : le jeu en ligne. */
+export const LinkIcon = ({ className = '' }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={`${base} ${className}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M10 14a4 4 0 0 1 0-5.6l2.2-2.2a4 4 0 1 1 5.6 5.6L16.4 13" />
+    <path d="M14 10a4 4 0 0 1 0 5.6l-2.2 2.2a4 4 0 1 1-5.6-5.6L7.6 11" />
+  </svg>
+)
