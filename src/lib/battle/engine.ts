@@ -1,47 +1,26 @@
-import type { BattleForm, Move, PokemonSummary } from '@/api/models'
 import type { TypeChart } from '@/lib/type-chart'
 import { resoudreFrappe } from './damage'
-import { choisirAttaques, LUTTE } from './moveset'
+import { LUTTE } from './moveset'
 import { createRng } from './rng'
 import type { Rng } from './rng'
-import { statsDeCombat } from './stats'
 import type { Action, BattleEvent, BattleState, Battler, Ecran, Side, Team } from './types'
+
+/*
+ * Les règles du jeu, et rien d'autre.
+ *
+ * Ce module ne sait ni composer un combattant, ni dessiner quoi que ce
+ * soit : il prend un état et deux actions, et rend l'état suivant avec le
+ * récit du tour. C'est cette étroitesse qui lui permet de tourner tel quel
+ * dans l'arbitre en ligne — il n'a aucune dépendance qui suppose un
+ * navigateur.
+ *
+ * Le montage d'un combattant, lui, a besoin du dex et du vivier
+ * d'attaques : il vit dans `montage.ts`, du côté qui a ces données.
+ */
 
 /* ------------------------------------------------------------------ *
  * Construction
  * ------------------------------------------------------------------ */
-
-/**
- * Monte un combattant. La forme, quand il y en a une, ne fait que se
- * substituer à l'espèce comme source de types, de statistiques et de
- * sprites : rien d'autre dans le moteur ne sait qu'elle existe.
- *
- * Les capacités, elles, sont fournies par l'appelant — voir `apprises` dans
- * `BattlePage`, qui réunit le vivier de l'espèce et celui de la forme.
- */
-export function creerBattler(
-  summary: PokemonSummary,
-  forme: BattleForm | null,
-  shiny: boolean,
-  apprises: readonly number[],
-  parId: ReadonlyMap<number, Move>,
-): Battler {
-  const types = forme?.types ?? summary.types
-  const base = forme?.stats ?? summary.stats
-  const stats = statsDeCombat(base)
-
-  return {
-    dexId: summary.id,
-    spriteId: forme?.id ?? summary.id,
-    shiny,
-    name: forme?.name ?? summary.name,
-    types,
-    stats,
-    hp: stats.hp,
-    maxHp: stats.hp,
-    moves: choisirAttaques(types, base, apprises, parId),
-  }
-}
 
 export function creerCombat(equipes: [Battler[], Battler[]], seed: number): BattleState {
   return {

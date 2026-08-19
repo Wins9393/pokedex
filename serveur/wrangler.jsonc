@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pokedex-combat",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+
+  // Une salle = un objet. Le nom de l'objet est le code à quatre lettres.
+  "durable_objects": {
+    "bindings": [{ "name": "SALLES", "class_name": "Salle" }]
+  },
+
+  // `new_sqlite_classes` et non `new_classes` : c'est le moteur de stockage
+  // disponible sur le plan gratuit.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Salle"] }],
+
+  "observability": { "enabled": true }
+}

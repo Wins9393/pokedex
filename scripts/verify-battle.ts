@@ -21,7 +21,8 @@ import { PLAFOND_SPRITES } from '@/lib/cache-sprites'
 import { estMuet } from '@/lib/battle/log'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
 import { efficaciteContre, resoudreFrappe } from '@/lib/battle/damage'
-import { creerBattler, creerCombat, resoudreTour, actif, prochainEcran } from '@/lib/battle/engine'
+import { creerCombat, resoudreTour, actif, prochainEcran } from '@/lib/battle/engine'
+import { creerBattler } from '@/lib/battle/montage'
 import { createRng, randInt } from '@/lib/battle/rng'
 
 /* Les données de l'API sont mises de côté pour que les relances soient
@@ -1091,7 +1092,62 @@ console.log("\nAdversaire contrôlé par l'IA")
   }
 }
 
-/* 16. Ce que le cache de requêtes garde d'une session à l'autre --------- */
+/* 16. La table des types embarquée par l'arbitre ------------------------ */
+console.log("\nTable des types de l'arbitre")
+{
+  /*
+   * L'arbitre en ligne ne demande pas la table à PokéAPI — ce serait une
+   * dépendance réseau au milieu d'un combat — et surtout il ne l'accepte
+   * pas d'un client, qui pourrait en fournir une où toutes ses attaques
+   * sont super efficaces. Elle est donc figée dans son code, et c'est ici
+   * qu'on vérifie qu'elle dit toujours la même chose que l'API.
+   */
+  const figee = JSON.parse(
+    readFileSync(new URL('../serveur/src/table-des-types.json', import.meta.url).pathname, 'utf8'),
+  ) as Record<string, Record<string, number>>
+
+  const ecarts: string[] = []
+  for (const [attaquant, ligne] of Object.entries(chart)) {
+    for (const [defenseur, valeur] of Object.entries(ligne)) {
+      if (figee[attaquant]?.[defenseur] !== valeur) {
+        ecarts.push(`${attaquant}→${defenseur} : ${figee[attaquant]?.[defenseur]} ≠ ${valeur}`)
+      }
+    }
+  }
+
+  ok(
+    "elle correspond à ce que renvoie l'API",
+    ecarts.length === 0,
+    ecarts.length === 0 ? '324 relations identiques' : ecarts.slice(0, 3).join(', '),
+  )
+
+  const { PROTOCOLE, equipeAcceptable, codeValide, normaliserCode } = await import(
+    '@/lib/battle/protocole'
+  )
+
+  ok('le protocole est numéroté', Number.isInteger(PROTOCOLE) && PROTOCOLE > 0, `v${PROTOCOLE}`)
+
+  const equipe = [battler(6), battler(25), battler(143)]
+  ok('une équipe de trois est acceptée', equipeAcceptable(equipe))
+  ok('une équipe de deux est refusée', !equipeAcceptable(equipe.slice(0, 2)))
+  ok(
+    'un combattant déjà entamé est refusé',
+    !equipeAcceptable([{ ...equipe[0], hp: 1 }, equipe[1], equipe[2]]),
+    'une équipe arrive neuve, ou elle est trafiquée',
+  )
+  ok(
+    'des points de vie hors échelle aussi',
+    !equipeAcceptable([{ ...equipe[0], hp: 5000, maxHp: 5000 }, equipe[1], equipe[2]]),
+  )
+
+  ok(
+    'un code de salle se lit sans ambiguïté',
+    normaliserCode(' k7p2 ') === 'K7P2' && !codeValide('K0P2') && !codeValide('ABC'),
+    'ni O/0 ni I/1/L dans l’alphabet',
+  )
+}
+
+/* 17. Ce que le cache de requêtes garde d'une session à l'autre --------- */
 console.log('\nCaches durables')
 {
   /*

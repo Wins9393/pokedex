@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["./worker-configuration.d.ts"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    // Les sources partagées vivent dans l'application : le moteur de combat
+    // est le même des deux côtés, et c'est tout l'intérêt.
+    "paths": { "@/*": ["../src/*"] }
+  },
+  /*
+   * Seules les sources de l'arbitre sont listées : les modules partagés
+   * entrent par les imports, et uniquement ceux dont il a besoin. C'est ce
+   * qui fait de ce contrôle un garde-fou — si le moteur se met un jour à
+   * dépendre de `localStorage` ou du DOM, `tsc` le dira ici, avant que le
+   * déploiement ne le découvre.
+   */
+  "include": ["src/**/*.ts", "src/**/*.json", "worker-configuration.d.ts"]
+}

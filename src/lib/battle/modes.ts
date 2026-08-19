@@ -54,8 +54,21 @@ export function aMoiDeJouer(ecran: Ecran, mode: Mode, moi: Side): boolean {
   return side === null || side === moi
 }
 
-/** Le camp que tient l'appareil, hors ligne où il dépend de la salle. */
-export const MON_COTE: Side = 0
+/**
+ * L'écran, vu par l'appareil.
+ *
+ * En ligne, les deux joueurs choisissent **en même temps** : la règle dit
+ * « au tour du camp 0 » parce qu'il faut bien nommer un camp, mais chaque
+ * téléphone doit lire « à moi ». Sans cette traduction, le joueur 2
+ * regarderait l'écran de choix du joueur 1 sans pouvoir y toucher.
+ *
+ * Le remplacement, lui, n'est pas traduit : il désigne le camp dont le
+ * Pokémon est à terre, et si ce n'est pas le nôtre, on attend.
+ */
+export function ecranPour(ecran: Ecran, mode: Mode, moi: Side): Ecran {
+  if (mode !== 'ligne' || ecran.kind !== 'choix') return ecran
+  return { kind: 'choix', side: moi }
+}
 
 /**
  * Le segment d'URL de chaque mode.

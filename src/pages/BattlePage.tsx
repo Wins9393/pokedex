@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { ActionPanel, ListeRemplacants } from '@/components/battle/ActionPanel'
 import { DUREE_EFFET } from '@/components/battle/AttackEffect'
 import type { Effet } from '@/components/battle/AttackEffect'
@@ -22,6 +22,13 @@ import { useTapLock } from '@/hooks/use-tap-lock'
 import { actif, remplacantsDisponibles } from '@/lib/battle/engine'
 import { estMuet } from '@/lib/battle/log'
 import { CHEMIN, LIBELLE, modeDepuisSegment } from '@/lib/battle/modes'
+import {
+  LONGUEUR_CODE,
+  TEXTE_ERREUR,
+  codeAleatoire,
+  codeValide,
+  normaliserCode,
+} from '@/lib/battle/protocole'
 import type { Noms } from '@/lib/battle/noms'
 import { lire } from '@/lib/battle/save'
 import type { Action, BattleState, Ecran, Mode, Side } from '@/lib/battle/types'
@@ -53,11 +60,15 @@ const PLANCHER_MUET = 250
  * cohérent avec ce qu'on voit.
  */
 export function BattlePage() {
-  const { mode: segment } = useParams()
+  const { mode: segment, code } = useParams()
   const mode = modeDepuisSegment(segment)
+  const salle = code ? normaliserCode(code) : null
 
   if (!mode) return <ChoixMode />
-  return <Partie key={mode} mode={mode} />
+  // Sans salle, le mode en ligne commence par en choisir une.
+  if (mode === 'ligne' && !salle) return <ChoixSalle />
+
+  return <Partie key={`${mode}-${salle ?? ''}`} mode={mode} code={salle} />
 }
 
 /* ------------------------------------------------------------------ *
@@ -126,7 +137,7 @@ function ChoixMode() {
       </p>
 
       <div className="space-y-2.5">
-        <CarteMode mode="ligne" bientot />
+        <CarteMode mode="ligne" />
         <CarteMode mode="duo" />
         <CarteMode mode="ia" />
       </div>
@@ -151,11 +162,177 @@ function ChoixMode() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Le jeu en ligne : entrer dans une salle
+ * ------------------------------------------------------------------ */
+
+/**
+ * Créer une salle ou en rejoindre une.
+ *
+ * Le code à quatre lettres **est** l'identifiant de l'objet qui arbitre la
+ * partie : il n'y a pas de registre de salles, pas de compte, pas d'attente
+ * d'appariement. On le crée en le tirant au sort, l'autre le tape ou suit
+ * le lien, et la salle existe parce qu'on l'a nommée.
+ */
+function ChoixSalle() {
+  const naviguer = useNavigate()
+  const [saisi, setSaisi] = useState('')
+  const code = normaliserCode(saisi)
+
+  return (
+    <Cadre>
+      <h1 className="mb-1 font-black text-2xl text-ink">Combat en ligne</h1>
+      <p className="mb-6 text-ink-faint text-sm">
+        Deux téléphones, chacun sa liste d'attaques. Les deux joueurs choisissent en même temps.
+      </p>
+
+      <button
+        type="button"
+        onClick={() => naviguer(`${CHEMIN('ligne')}/${codeAleatoire()}`)}
+        className="w-full rounded-2xl bg-accent px-5 py-3.5 font-bold text-white shadow-[var(--card-glow)] transition hover:brightness-110"
+      >
+        Créer une salle
+      </button>
+
+      <div className="my-5 flex items-center gap-3">
+        <span className="h-px flex-1 bg-line" />
+        <span className="font-semibold text-ink-faint text-xs">ou</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (codeValide(code)) naviguer(`${CHEMIN('ligne')}/${code}`)
+        }}
+        className="space-y-3"
+      >
+        <label htmlFor="code-salle" className="block font-semibold text-ink-soft text-sm">
+          Rejoindre avec un code
+        </label>
+        <input
+          id="code-salle"
+          value={saisi}
+          onChange={(event) => setSaisi(normaliserCode(event.target.value))}
+          placeholder="ABCD"
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          maxLength={LONGUEUR_CODE}
+          className="w-full rounded-2xl border border-line bg-panel-soft px-4 py-3 text-center font-black text-2xl text-ink tracking-[0.3em] uppercase placeholder:text-ink-faint/40"
+        />
+        <button
+          type="submit"
+          disabled={!codeValide(code)}
+          className="w-full rounded-2xl border border-line bg-panel-soft px-5 py-3 font-bold text-ink-soft transition enabled:hover:text-ink disabled:opacity-40"
+        >
+          Rejoindre
+        </button>
+      </form>
+    </Cadre>
+  )
+}
+
+/**
+ * Le salon : on est dans la salle, on attend l'autre, on compose.
+ *
+ * Le code reste affiché en grand tant que la partie n'a pas commencé —
+ * c'est la seule chose à transmettre, et la chercher dans la barre
+ * d'adresse d'un téléphone est une épreuve.
+ */
+function Salon({
+  code,
+  nomAdverse,
+  adversaireConnecte,
+  connecte,
+  onComposer,
+}: {
+  code: string
+  nomAdverse: string | null
+  adversaireConnecte: boolean
+  connecte: boolean
+  onComposer: () => void
+}) {
+  const [copie, setCopie] = useState(false)
+  const lien = `${window.location.origin}${CHEMIN('ligne')}/${code}`
+
+  return (
+    <Cadre>
+      <div className="rounded-2xl border border-line bg-panel-soft p-5 text-center">
+        <p className="font-semibold text-ink-faint text-sm">Code de la salle</p>
+        <p className="my-2 font-black text-4xl text-ink tracking-[0.35em]">{code}</p>
+
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard
+              ?.writeText(lien)
+              .then(() => setCopie(true))
+              .catch(() => setCopie(false))
+          }}
+          className="rounded-full border border-line px-4 py-1.5 font-semibold text-ink-soft text-sm transition hover:text-ink"
+        >
+          {copie ? 'Lien copié' : 'Copier le lien'}
+        </button>
+      </div>
+
+      <div className="mt-4 flex items-center gap-3 rounded-2xl border border-line bg-panel-soft px-4 py-3">
+        <span
+          aria-hidden="true"
+          className={`size-2.5 shrink-0 rounded-full ${
+            adversaireConnecte ? 'bg-emerald-500' : 'animate-pulse bg-amber-500'
+          }`}
+        />
+        <p className="flex-1 font-semibold text-ink-soft text-sm">
+          {!connecte
+            ? "Connexion à l'arbitre…"
+            : adversaireConnecte
+              ? `${nomAdverse ?? "L'adversaire"} est dans la salle`
+              : "En attente d'un adversaire…"}
+        </p>
+      </div>
+
+      {/* Composer sans attendre : l'arbitre garde l'équipe, et les deux
+          joueurs peuvent préparer la leur en même temps. */}
+      <button
+        type="button"
+        onClick={onComposer}
+        className="mt-5 w-full rounded-2xl bg-accent px-5 py-3.5 font-bold text-white shadow-[var(--card-glow)] transition hover:brightness-110"
+      >
+        Composer mon équipe
+      </button>
+    </Cadre>
+  )
+}
+
+/** Ce qu'on attend de l'autre, dit plutôt que laissé à deviner. */
+function Attente({ texte, code }: { texte: string; code?: string }) {
+  return (
+    <Cadre>
+      <div className="space-y-3 py-10 text-center">
+        <PokeballIcon className="mx-auto size-10 animate-pulse text-accent" />
+        <p className="font-bold text-ink">{texte}</p>
+        {code && (
+          <p className="text-ink-faint text-sm">
+            Code de la salle : <span className="font-black tracking-[0.2em]">{code}</span>
+          </p>
+        )}
+      </div>
+    </Cadre>
+  )
+}
+
+/* ------------------------------------------------------------------ *
  * La partie
  * ------------------------------------------------------------------ */
 
-function Partie({ mode }: { mode: Mode }) {
-  const combat = useCombat(mode)
+function Partie({ mode, code }: { mode: Mode; code: string | null }) {
+  const combat = useCombat(mode, code)
+  /*
+   * En ligne, on entre par le salon : le code s'y lit en grand, et c'est de
+   * là qu'on part composer. Une fois l'équipe validée, on n'y revient pas.
+   */
+  const [compose, setCompose] = useState(false)
+  const naviguer = useNavigate()
   const {
     pokemon,
     chart,
@@ -202,6 +379,20 @@ function Partie({ mode }: { mode: Mode }) {
   const avecGeste = effet !== null
   const { avancerRecit } = combat
 
+  /*
+   * « Quitter » n'a pas le même sens selon le mode. En local il efface la
+   * partie sauvegardée ; en ligne il n'y a rien à effacer ici — l'état
+   * appartient à l'arbitre — et quitter, c'est simplement sortir de la
+   * salle. Elle s'oubliera d'elle-même faute de connexions.
+   */
+  const quitterOuRejouer = (memesEquipes: boolean) => {
+    if (mode === 'ligne' && !memesEquipes) {
+      naviguer(CHEMIN('ligne'))
+      return
+    }
+    combat.rejouer(memesEquipes)
+  }
+
   useEffect(() => {
     if (!etapeMuette) return
 
@@ -217,6 +408,31 @@ function Partie({ mode }: { mode: Mode }) {
     const minuteur = window.setTimeout(avancerRecit, delai)
     return () => window.clearTimeout(minuteur)
   }, [etapeMuette, curseur, reduit, avecGeste, avancerRecit])
+
+  /* --- Rendu du mode en ligne, avant la partie ----------------------- */
+  const salle = combat.salle
+
+  if (mode === 'ligne' && !salle.configuree) {
+    return (
+      <Cadre>
+        <ErrorScreen
+          message="Le combat en ligne n'est pas configuré sur ce déploiement : il lui manque l'adresse de l'arbitre."
+          onRetry={() => naviguer('/combat')}
+        />
+      </Cadre>
+    )
+  }
+
+  if (mode === 'ligne' && salle.erreur) {
+    return (
+      <Cadre>
+        <ErrorScreen
+          message={TEXTE_ERREUR[salle.erreur.raison]}
+          onRetry={() => window.location.reload()}
+        />
+      </Cadre>
+    )
+  }
 
   /* --- Rendu --------------------------------------------------------- */
   if (combat.chargement) {
@@ -237,10 +453,57 @@ function Partie({ mode }: { mode: Mode }) {
 
   if (!pokemon) return null
 
+  if (mode === 'ligne' && code) {
+    // Tant que l'arbitre n'a pas répondu, il n'y a ni camp ni salle.
+    if (!salle.etat) {
+      return (
+        <Cadre>
+          <LoadingScreen label="Connexion à la salle…" />
+        </Cadre>
+      )
+    }
+
+    if (ecran.kind === 'equipe' && !enPreparation && !compose) {
+      return (
+        <Salon
+          code={code}
+          nomAdverse={salle.etat.nomAdverse}
+          adversaireConnecte={salle.etat.adversaireConnecte}
+          connecte={salle.connecte}
+          onComposer={() => setCompose(true)}
+        />
+      )
+    }
+
+    if (combat.attente === 'equipe') {
+      return (
+        <Attente
+          code={code}
+          texte={
+            salle.etat.adversaireConnecte
+              ? `En attente de l'équipe de ${salle.etat.nomAdverse ?? "l'adversaire"}…`
+              : "En attente d'un adversaire…"
+          }
+        />
+      )
+    }
+  }
+
   const enPassage = passage !== null
 
   return (
     <div className="min-h-dvh">
+      {/*
+        Une socket coupée ne se voit pas : l'arène reste à l'écran, et les
+        coups partent dans le vide. Le bandeau est la seule chose qui
+        distingue « l'adversaire réfléchit » de « le lien est tombé ».
+      */}
+      {mode === 'ligne' && !salle.connecte && (
+        <div className="sticky top-0 z-50 bg-amber-500 px-4 py-1.5 text-center font-semibold text-amber-950 text-sm">
+          Reconnexion à la salle…
+        </div>
+      )}
+
       {enPassage && (
         <PassScreen
           player={passage.vers}
@@ -290,6 +553,8 @@ function Partie({ mode }: { mode: Mode }) {
             <Combat
               ecran={ecran}
               moi={combat.moi}
+              attente={combat.attente}
+              nomAdverse={combat.salle.etat?.nomAdverse ?? null}
               affiche={affiche}
               etat={etat}
               chart={chart}
@@ -302,7 +567,8 @@ function Partie({ mode }: { mode: Mode }) {
               onAvancer={avancerRecit}
               onAction={combat.choisirAction}
               onRemplacer={combat.choisirRemplacant}
-              onRejouer={combat.rejouer}
+              onRejouer={quitterOuRejouer}
+              enLigne={mode === 'ligne'}
             />
           ))}
       </div>
@@ -394,6 +660,11 @@ type CombatProps = {
    * C'est lui qui décide de quel côté du terrain on se place.
    */
   moi: Side | null
+  /** En ligne : ce qu'on attend de l'autre, et qui n'arrivera pas d'ici. */
+  attente: 'equipe' | 'coup' | 'remplacement' | null
+  nomAdverse: string | null
+  /** En ligne, les équipes appartiennent à la salle : on ne les change pas seul. */
+  enLigne: boolean
   affiche: BattleState
   etat: BattleState
   chart: TypeChart | undefined
@@ -418,6 +689,9 @@ type CombatProps = {
 function Combat({
   ecran,
   moi,
+  attente,
+  nomAdverse,
+  enLigne,
   affiche,
   etat,
   chart,
@@ -509,7 +783,24 @@ function Combat({
       </div>
 
       <div className="mt-4">
-        {ecran.kind === 'choix' && (
+        {/*
+          Le coup est parti, l'écran n'a plus rien à proposer : le dire
+          explicitement, sinon une arène immobile ressemble à une arène
+          figée. C'est la seule différence visible du mode en ligne dans
+          l'arène — tout le reste est identique.
+        */}
+        {attente !== null && attente !== 'equipe' && (
+          <div className="flex items-center justify-center gap-3 rounded-2xl border border-line bg-panel-soft px-4 py-6">
+            <PokeballIcon className="size-5 animate-pulse text-accent" />
+            <p className="font-semibold text-ink-soft text-sm">
+              {attente === 'coup'
+                ? `${nomAdverse ?? "L'adversaire"} choisit son attaque…`
+                : `${nomAdverse ?? "L'adversaire"} envoie son prochain Pokémon…`}
+            </p>
+          </div>
+        )}
+
+        {attente === null && ecran.kind === 'choix' && (
           /*
            * La clé force le remontage à chaque changement de joueur ou de
            * Pokémon. Sans elle le panneau garde son état interne : un joueur
@@ -528,7 +819,7 @@ function Combat({
           />
         )}
 
-        {ecran.kind === 'remplacement' && (
+        {attente === null && ecran.kind === 'remplacement' && (
           <div className="space-y-2">
             <p className="font-semibold text-ink-soft text-sm">Envoie ton prochain Pokémon.</p>
             <ListeRemplacants
@@ -557,7 +848,7 @@ function Combat({
                 onClick={() => arme && onRejouer(false)}
                 className="rounded-full border border-line bg-panel-soft px-5 py-2.5 font-bold text-ink-soft transition hover:text-ink"
               >
-                Nouvelles équipes
+                {enLigne ? 'Quitter la salle' : 'Nouvelles équipes'}
               </button>
             </div>
           </div>

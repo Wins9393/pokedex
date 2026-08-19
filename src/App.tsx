@@ -39,6 +39,16 @@ export default function App() {
           </Suspense>
         }
       />
+      {/* Le troisième segment est le code de salle : une partie en ligne se
+          partage donc en envoyant son adresse, sans autre mécanisme. */}
+      <Route
+        path="/combat/:mode/:code"
+        element={
+          <Suspense fallback={<LoadingScreen label="Chargement du mode combat…" />}>
+            <BattlePage />
+          </Suspense>
+        }
+      />
       <Route path="*" element={<PokedexPage />} />
     </Routes>
   )

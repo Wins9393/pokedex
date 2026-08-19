@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "verify:battle": "node --import ./scripts/register.mjs scripts/verify-battle.ts"
+    "verify:battle": "node --import ./scripts/register.mjs scripts/verify-battle.ts",
+    "verify:salle": "node --import ./scripts/register.mjs scripts/verify-salle.ts"
   },
   "dependencies": {
     "@tanstack/query-async-storage-persister": "^5.101.4",

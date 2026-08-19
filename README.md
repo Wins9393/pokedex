@@ -73,7 +73,7 @@ Trois façons de jouer, une seule machine :
 | --- | --- | --- |
 | **À deux sur ce téléphone** (`/combat/duo`) | La personne assise à côté, derrière un écran de passage | Ici |
 | **Contre le Dresseur** (`/combat/solo`) | `lib/battle/ia.ts` | Ici |
-| **En ligne** (`/combat/en-ligne`) | Un autre téléphone | Sur l'arbitre |
+| **En ligne** (`/combat/en-ligne/CODE`) | Un autre téléphone | Sur l'arbitre |
 
 Le mode ne change que trois choses, et elles vivent ensemble dans `lib/battle/modes.ts` : d'où vient
 l'équipe adverse, d'où vient son action, et faut-il passer le téléphone. Tout le reste — le récit
@@ -89,6 +89,40 @@ permettra, le jour venu, de faire jouer deux téléphones en n'échangeant que l
 
 L'aléatoire passe par un générateur à graine. Sans lui le moteur serait intestable, et deux
 `Math.random()` indépendants feraient diverger deux écrans dès le deuxième tour.
+
+#### Le jeu en ligne
+
+Une salle = un **Durable Object** Cloudflare, nommé par le code à quatre lettres qu'on se partage.
+La plateforme garantit qu'il n'existe qu'une seule instance vivante au monde pour ce nom : les deux
+téléphones s'adressent donc au même objet, où qu'ils soient, et ses messages sont traités un par un
+— aucune course entre les deux joueurs, aucun verrou à poser. La salle de jeu et l'objet serveur
+sont littéralement la même chose.
+
+**L'arbitre fait tourner `engine.ts`**, le fichier des téléphones, sans une ligne de moteur en
+double. C'est ce qui règle d'un coup trois problèmes qu'un simple relais laisserait ouverts :
+
+- **La divergence de version.** `main` se déploie tout seul : deux joueurs peuvent parfaitement
+  ouvrir la même salle avec deux versions de l'application. Seul le moteur de l'arbitre compte, et
+  un numéro de protocole refuse net les applications qui ne se comprendraient pas — plutôt que de
+  laisser une partie diverger en silence.
+- **La graine.** Elle est tirée par l'arbitre. Sur un téléphone, celui qui la connaîtrait saurait à
+  l'avance quels coups seront critiques.
+- **La déconnexion.** L'état vit dans l'objet ; un téléphone qui recharge se rebranche et retrouve
+  la partie. C'est le **jeton** — un identifiant d'appareil, pas de joueur — qui lui rend son camp,
+  sans quoi il prendrait la place restée libre, c'est-à-dire celle de l'adversaire.
+
+Mesuré sur un vrai combat : un état complet pèse **5,2 Ko**, les événements d'un tour 0,4 Ko, une
+action une vingtaine d'octets. Renvoyer l'état entier à chaque tour coûte **73 Ko pour toute la
+partie** — aucune optimisation de protocole n'est justifiée, et le client ne recalcule jamais rien.
+
+L'écran de passage disparaît : les deux joueurs choisissent en même temps, chacun chez soi, et
+l'arbitre garde le premier coup reçu secret jusqu'à l'arrivée du second. La sauvegarde locale, elle,
+ne sert pas — l'état appartient à l'arbitre, et c'est l'adresse de la salle qui tient lieu de
+signet.
+
+`verify:salle` éprouve tout cela contre un vrai serveur : 19 contrôles à deux connexions, dont
+« les deux téléphones reçoivent le même combat », « le choix de l'un ne fuit pas vers l'autre »,
+« un coup daté du tour précédent est ignoré » et « un joueur qui recharge retrouve son camp ».
 
 #### L'adversaire du mode solo
 
@@ -441,6 +475,22 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
   à la visite suivante, et le mode combat se retrouvait sans données hors ligne. Ce que le
   téléchargement écrit doit figurer dans `PREFIXES_DURABLES` ; `verify:battle` recoupe chaque clé
   stockée avec cette liste.
+- **Une socket fermée après son remplacement parle encore, et elle ment.** Le même défaut est
+  apparu **des deux côtés du fil**, à une heure d'intervalle. Côté arbitre : le `close` de
+  l'ancienne connexion arrive *après* le `rejoindre` de la nouvelle, déclarait le joueur absent, et
+  les deux s'attendaient pour toujours. Côté téléphone : ce même `close` remettait la référence de
+  socket à `null` — l'application se croyait branchée, `envoyer` retombait dans le vide sans un
+  mot, et les deux équipes n'arrivaient jamais. Dans les deux cas la parade est la même : ne croire
+  une fermeture que si elle concerne la connexion **courante** (un numéro de session côté serveur,
+  une comparaison de référence côté client). React en mode strict le provoque à chaque montage ; un
+  réseau mobile le provoque tout seul.
+- **Un envoi qui échoue ne doit pas être compté comme envoyé.** `envoyer` rendait `void` : le
+  drapeau « équipe transmise » se levait même quand la socket était fermée, et plus rien ne
+  repartait jamais. Il rend désormais un booléen, et l'appelant s'en sert.
+- **Deux onglets d'un même navigateur ne peuvent pas s'affronter** : ils partagent `localStorage`,
+  donc le jeton d'appareil, donc le camp. Ce n'est pas un défaut — c'est exactement ce qu'on veut
+  quand on recharge une page — mais ça surprend au moment de tester. Deux origines différentes
+  (`localhost` et `[::1]`) suffisent à s'en sortir.
 - **L'API Resource Timing ment sur les ressources cross-origin.** Sans en-tête
   `Timing-Allow-Origin`, `transferSize` et `decodedBodySize` valent toujours `0` : s'en servir
   pour distinguer une requête réussie d'une requête échouée donne un compte entièrement faux.
@@ -615,11 +665,19 @@ Quelques points qui ne se devinent pas et sont documentés dans le code :
 src/
 ├── api/        client GraphQL, requêtes, normalisation des réponses
 ├── lib/        recherche, filtres, table des types, sprites, formatage, géométrie de l'arène
-│   └── battle/ moteur de combat : stats, dégâts, RNG à graine, attaques, formes, gestes, tours, sauvegarde
-├── hooks/      index, fiche, attaques, formes, noms, filtres (URL), favoris, thème, cri, inclinaison 3D
+│   └── battle/ moteur : règles, montage, dégâts, RNG à graine, IA, modes, protocole, sauvegarde
+├── hooks/      index, fiche, attaques, formes, noms, filtres (URL), favoris, thème, combat, salle
 ├── components/ layout · grid · filters · detail · battle · ui
 └── pages/      PokedexPage · BattlePage
+
+serveur/        l'arbitre du jeu en ligne — un Worker Cloudflare, une salle = un Durable Object
 ```
+
+Le dossier `serveur/` a ses propres dépendances et son propre déploiement, mais **pas son propre
+moteur** : il importe `src/lib/battle/engine.ts`, le même fichier que les téléphones. Son
+`tsconfig.json` ne liste que ses sources, si bien que les modules partagés y entrent par les
+imports — et qu'une dépendance au navigateur glissée dans le moteur y échouerait au contrôle de
+types avant d'échouer en production.
 
 `src/api/normalize.ts` est le seul fichier qui connaît la forme brute de l'API : il aplatit les
 réponses GraphQL en modèles simples utilisés partout ailleurs.
@@ -642,6 +700,33 @@ Deux points méritent l'attention :
   mises à jour ; mis en cache longue durée, il figerait l'application chez les visiteurs. Les
   bundles, eux, portent une empreinte dans leur nom et sont donc marqués `immutable`.
 
+### L'arbitre du jeu en ligne
+
+Le mode en ligne demande un second déployable — le seul de tout le projet. Il tient en trois
+commandes, une seule fois :
+
+```bash
+cd serveur && npm install && npx wrangler login && npx wrangler deploy
+```
+
+`wrangler deploy` répond avec une adresse du type `pokedex-combat.<sous-domaine>.workers.dev`. Il
+reste à la donner à l'application, en **`wss://`** et sans barre finale :
+
+| Où | Variable | Valeur |
+| --- | --- | --- |
+| Netlify → Site settings → Environment variables | `VITE_ARBITRE` | `wss://pokedex-combat.<sous-domaine>.workers.dev` |
+
+Puis un nouveau déploiement du site, la variable étant lue à la construction. Sans elle, le mode
+en ligne ne se lance pas et le dit — plutôt que de laisser tourner un écran de connexion qui
+n'aboutira jamais.
+
+En développement, rien de tout cela : `cd serveur && npx wrangler dev` sert l'objet durable en
+local sur le port 8787, que l'application utilise par défaut. Le mode en ligne se teste donc
+entièrement sans compte et sans déploiement, y compris `npm run verify:salle`.
+
+Deux commandes valent d'être connues : `npx wrangler tail` donne les journaux en direct, et
+`npx wrangler rollback` revient à la version précédente.
+
 ## Scripts
 
 | Commande | Effet |
@@ -650,7 +735,8 @@ Deux points méritent l'attention :
 | `npm run build` | Vérification des types puis build de production |
 | `npm run preview` | Sert le build de production |
 | `npm run lint` | oxlint |
-| `npm run verify:battle` | Contrôle le moteur de combat sur des valeurs de référence |
+| `npm run verify:battle` | Contrôle le moteur, l'IA, les caches et la table de l'arbitre (103 vérifications) |
+| `npm run verify:salle` | Contrôle l'arbitre en ligne, à deux connexions, contre un `wrangler dev` |
 
 ## Crédits
 

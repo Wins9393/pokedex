@@ -1,26 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBattleForms } from '@/hooks/use-forms'
 import { useMoves, useMovesets } from '@/hooks/use-moves'
 import { useNomsJoueurs } from '@/hooks/use-noms-joueurs'
 import { usePokedex } from '@/hooks/use-pokedex'
-import {
-  actif,
-  creerBattler,
-  creerCombat,
-  prochainEcran,
-  remplacer,
-  resoudreTour,
-} from '@/lib/battle/engine'
+import { useSalle } from '@/hooks/use-salle'
+import { actif, creerCombat, prochainEcran, remplacer, resoudreTour } from '@/lib/battle/engine'
+import { creerBattler } from '@/lib/battle/montage'
 import { choisirActionIA, choisirRemplacantIA, composerEquipeIA } from '@/lib/battle/ia'
 import { texteEvenement } from '@/lib/battle/log'
-import { passagePour } from '@/lib/battle/modes'
+import { ecranPour, passagePour } from '@/lib/battle/modes'
 import { NOMS_PAR_DEFAUT } from '@/lib/battle/noms'
+import type { Noms } from '@/lib/battle/noms'
 import { graineAleatoire } from '@/lib/battle/rng'
 import { ecrire, effacer, lire, reprendre } from '@/lib/battle/save'
 import type {
   Action,
   BattleEvent,
   BattleState,
+  Battler,
   Choix,
   Ecran,
   Mode,
@@ -28,6 +25,7 @@ import type {
   Side,
   Team,
 } from '@/lib/battle/types'
+import { TAILLE_EQUIPE } from '@/lib/battle/types'
 
 /** Le nom de l'adversaire automatique, à la place du pseudo du joueur 2. */
 const NOM_IA = 'Dresseur'
@@ -75,7 +73,7 @@ function appliquer(etat: BattleState, event: BattleEvent): BattleState {
  * se calcule. Tout le reste — le récit rejoué au rythme du joueur, les
  * jauges, la sauvegarde — est commun aux trois.
  */
-export function useCombat(mode: Mode) {
+export function useCombat(mode: Mode, code: string | null = null) {
   const { pokemon, byId, chart, isPending, isError, error, refetch } = usePokedex()
   const { noms: pseudos } = useNomsJoueurs()
   const { byId: movesById, isPending: movesPending, isError: movesError } = useMoves()
@@ -85,16 +83,6 @@ export function useCombat(mode: Mode) {
    * attendre ferait dépendre un mode entier d'une requête accessoire.
    */
   const { parEspece: formesParEspece } = useBattleForms(byId)
-
-  /*
-   * En solo, le second pseudo n'a personne à désigner : l'adversaire n'est
-   * pas un joueur, et lui coller le nom enregistré ferait dire au journal
-   * qu'une amie absente vient de nous mettre K.O.
-   */
-  const noms = useMemo(
-    () => (mode === 'ia' ? ([pseudos[0] || NOMS_PAR_DEFAUT[0], NOM_IA] as const) : pseudos),
-    [mode, pseudos],
-  )
 
   /*
    * La partie sauvegardée, lue une seule fois au montage.
@@ -150,6 +138,56 @@ export function useCombat(mode: Mode) {
   )
   const [impact, setImpact] = useState<Side | null>(null)
 
+  /* --- Le lien avec l'arbitre, en ligne seulement -------------------- */
+  const salle = useSalle(mode === 'ligne' ? code : null, pseudos[0] || NOMS_PAR_DEFAUT[0], {
+    /*
+     * Le combat arrive tout monté : c'est l'arbitre qui a assemblé les deux
+     * équipes et tiré la graine. Le téléphone ne calcule rien, il affiche.
+     */
+    onDebut: (recu) => {
+      setEtat(recu)
+      setAffiche(recu)
+      setEvenements([])
+      setCurseur(0)
+      setImpact(null)
+      setMessage(null)
+      setEcran({ kind: 'choix', side: salle.etat?.moi ?? 0 })
+    },
+    /*
+     * Un tour résolu ailleurs. `affiche` n'est pas touché : il porte déjà
+     * l'état d'avant le tour, que le récit va faire évoluer pas à pas —
+     * exactement comme en local.
+     */
+    onTour: (recu, recits) => {
+      setEtat(recu)
+      setEvenements(recits)
+      setCurseur(0)
+      setEcran({ kind: 'replay' })
+    },
+  })
+
+  /** Le camp que tient cet appareil. En ligne, c'est l'arbitre qui l'attribue. */
+  const monCote: Side = mode === 'ligne' ? (salle.etat?.moi ?? 0) : 0
+
+  /*
+   * En solo, le second pseudo n'a personne à désigner : l'adversaire n'est
+   * pas un joueur, et lui coller le nom enregistré ferait dire au journal
+   * qu'une amie absente vient de nous mettre K.O. En ligne, les deux noms
+   * sont rangés **par camp** et non par appareil : le journal nomme des
+   * camps, et je ne suis pas toujours le premier.
+   */
+  const noms = useMemo<Noms>(() => {
+    if (mode === 'ia') return [pseudos[0] || NOMS_PAR_DEFAUT[0], NOM_IA]
+
+    if (mode === 'ligne') {
+      const moi = pseudos[0] || NOMS_PAR_DEFAUT[0]
+      const lui = salle.etat?.nomAdverse ?? 'Adversaire'
+      return monCote === 0 ? [moi, lui] : [lui, moi]
+    }
+
+    return pseudos
+  }, [mode, pseudos, salle.etat?.nomAdverse, monCote])
+
   /*
    * On demande les capacités de l'espèce **et** de la forme retenue. Les
    * deux sont nécessaires : le vivier propre à une forme est souvent
@@ -161,12 +199,21 @@ export function useCombat(mode: Mode) {
     // Un combat repris porte déjà ses combattants tout montés — types,
     // statistiques et quatre attaques comprises. La reprise ne redemande
     // donc rien au réseau.
-    if (!equipes || etat) return []
-    const ids = [...equipes[0], ...equipes[1]].flatMap((choix) =>
+    if (etat) return []
+
+    /*
+     * En ligne, l'appareil ne monte que **sa** moitié : l'équipe d'en face
+     * arrive déjà assemblée depuis l'arbitre, et demander ses capacités
+     * serait à la fois inutile et révélateur.
+     */
+    const choisis = mode === 'ligne' ? (equipe1 ?? []) : equipes ? [...equipes[0], ...equipes[1]] : []
+    if (choisis.length === 0) return []
+
+    const ids = choisis.flatMap((choix) =>
       choix.formId ? [choix.speciesId, choix.formId] : [choix.speciesId],
     )
     return [...new Set(ids)]
-  }, [equipes, etat])
+  }, [mode, equipe1, equipes, etat])
 
   const {
     movesets,
@@ -177,7 +224,7 @@ export function useCombat(mode: Mode) {
   /* --- Enchaînement après un tour ou un remplacement ---------------- */
   const enchainer = useCallback(
     (courant: BattleState) => {
-      const suivant = prochainEcran(courant)
+      const suivant = ecranPour(prochainEcran(courant), mode, monCote)
       const relais = passagePour(suivant, mode)
       /*
        * Avec un passage, l'écran courant reste dessous jusqu'à la tape :
@@ -188,15 +235,19 @@ export function useCombat(mode: Mode) {
       if (relais) setPassage(relais)
       else setEcran(suivant)
     },
-    [mode],
+    [mode, monCote],
   )
 
-  /* --- Construction du combat une fois les capacités reçues --------- */
-  useEffect(() => {
-    if (etat || !equipes || !movesets || !movesById || !byId) return
+  /**
+   * Des choix du joueur aux combattants prêts à se battre. En ligne comme
+   * en local, c'est le même montage : ce sont les mêmes objets qui partent
+   * sur le réseau et qui servent ici.
+   */
+  const monter = useCallback(
+    (choisis: Choix[]): Battler[] => {
+      if (!movesets || !movesById || !byId) return []
 
-    const monter = (choisis: Choix[]) =>
-      choisis.flatMap((choix) => {
+      return choisis.flatMap((choix) => {
         const summary = byId.get(choix.speciesId)
         if (!summary) return []
 
@@ -213,6 +264,42 @@ export function useCombat(mode: Mode) {
 
         return [creerBattler(summary, forme, choix.shiny, apprises, movesById)]
       })
+    },
+    [movesets, movesById, byId, formesParEspece],
+  )
+
+  /* --- L'équipe part à l'arbitre, en ligne -------------------------- */
+  const equipeEnvoyee = useRef(false)
+  useEffect(() => {
+    if (!salle.connecte) equipeEnvoyee.current = false
+  }, [salle.connecte])
+
+  useEffect(() => {
+    if (mode !== 'ligne' || etat || !equipe1 || !movesets) return
+    /*
+     * Le drapeau vient de l'arbitre, pas de nous : si la salle a été
+     * oubliée entre-temps, il redira « équipe non reçue » et on la renvoie
+     * sans que le joueur ait à recomposer quoi que ce soit.
+     */
+    if (equipeEnvoyee.current || !salle.etat || salle.etat.equipeEnvoyee) return
+
+    const battlers = monter(equipe1)
+    if (battlers.length !== TAILLE_EQUIPE) return
+
+    /*
+     * Le drapeau ne se lève que si le message est **parti**. Sinon une
+     * socket refermée entre la réponse de l'arbitre et cet envoi —
+     * c'est exactement ce que fait React en mode strict, et ce que fait un
+     * réseau mobile en permanence — laisserait l'équipe sur le téléphone,
+     * marquée comme envoyée, et les deux joueurs s'attendraient sans fin.
+     */
+    equipeEnvoyee.current = salle.envoyer({ type: 'equipe', battlers })
+  }, [mode, etat, equipe1, movesets, salle, monter])
+
+  /* --- Construction du combat une fois les capacités reçues --------- */
+  useEffect(() => {
+    if (mode === 'ligne') return
+    if (etat || !equipes || !movesets || !movesById || !byId) return
 
     const combat = creerCombat([monter(equipes[0]), monter(equipes[1])], graineAleatoire())
     setEtat(combat)
@@ -222,12 +309,19 @@ export function useCombat(mode: Mode) {
     const relais = passagePour(debut, mode)
     if (relais) setPassage({ ...relais, detail: 'Le combat commence !' })
     else setEcran(debut)
-  }, [etat, equipes, movesets, movesById, byId, formesParEspece, mode])
+  }, [etat, equipes, movesets, movesById, byId, mode, monter])
 
   /* --- Sauvegarde de la partie -------------------------------------- */
   useEffect(() => {
     // Avant l'équipe du joueur 1, il n'y a rien à retenir.
     if (!equipe1) return
+    /*
+     * Rien n'est écrit en ligne : l'état appartient à l'arbitre, et une
+     * copie locale prendrait le risque de contredire la sienne. C'est
+     * l'adresse — le code de salle — qui tient lieu de sauvegarde, et le
+     * navigateur la garde tout seul.
+     */
+    if (mode === 'ligne') return
     ecrire({ mode, equipe1, equipe2, etat, ecran, passage })
   }, [mode, equipe1, equipe2, etat, ecran, passage])
 
@@ -307,6 +401,13 @@ export function useCombat(mode: Mode) {
         return
       }
 
+      /*
+       * En ligne, l'équipe part à l'arbitre dès que les capacités sont là
+       * — c'est l'effet d'envoi qui s'en charge —, et l'écran reste en
+       * attente de l'adversaire.
+       */
+      if (mode === 'ligne') return
+
       const suivant: Ecran = { kind: 'equipe', joueur: 2 }
       const relais = passagePour(suivant, mode)
       if (relais) setPassage(relais)
@@ -317,7 +418,20 @@ export function useCombat(mode: Mode) {
 
   const choisirAction = useCallback(
     (action: Action) => {
-      if (ecran.kind !== 'choix' || !etat || !chart) return
+      if (ecran.kind !== 'choix' || !etat) return
+
+      /*
+       * En ligne, le coup part et rien ne bouge : c'est l'arbitre qui dira
+       * ce qu'il s'est passé, une fois l'autre choix arrivé. Le tour voyage
+       * avec l'action pour qu'un double envoi ou un message en retard soit
+       * ignoré plutôt que rejoué.
+       */
+      if (mode === 'ligne') {
+        salle.envoyer({ type: 'action', tour: etat.turn, action })
+        return
+      }
+
+      if (!chart) return
 
       if (mode === 'ia') {
         // Les deux choix sont simultanés : l'adversaire décide sur l'état
@@ -337,12 +451,17 @@ export function useCombat(mode: Mode) {
 
       resoudre(etat, [enAttente ?? { kind: 'move', slot: 0 }, action])
     },
-    [ecran, etat, chart, mode, enAttente, resoudre],
+    [ecran, etat, chart, mode, enAttente, resoudre, salle],
   )
 
   const choisirRemplacant = useCallback(
     (index: number) => {
       if (ecran.kind !== 'remplacement' || !etat) return
+
+      if (mode === 'ligne') {
+        salle.envoyer({ type: 'remplacement', tour: etat.turn, index })
+        return
+      }
 
       const resultat = remplacer(etat, ecran.side, index)
       const premier = resultat.events[0]
@@ -352,7 +471,7 @@ export function useCombat(mode: Mode) {
       if (premier) setMessage(texteEvenement(premier, noms))
       enchainer(resultat.etat)
     },
-    [ecran, etat, noms, enchainer],
+    [ecran, etat, noms, enchainer, mode, salle],
   )
 
   /* --- L'adversaire automatique envoie son remplaçant --------------- */
@@ -372,6 +491,17 @@ export function useCombat(mode: Mode) {
 
   const rejouer = useCallback(
     (memesEquipes: boolean) => {
+      /*
+       * En ligne, la revanche se demande : les deux joueurs doivent
+       * repartir du même combat, et c'est l'arbitre qui le refait. Quitter,
+       * en revanche, est une décision locale — la page s'en va, la salle
+       * s'oublie d'elle-même faute de connexions.
+       */
+      if (mode === 'ligne') {
+        if (memesEquipes) salle.envoyer({ type: 'revanche' })
+        return
+      }
+
       // La partie sauvegardée disparaît d'abord : sans péremption, c'est
       // « Rejouer » et « Quitter » qui la libèrent, et rien d'autre.
       effacer()
@@ -394,7 +524,7 @@ export function useCombat(mode: Mode) {
         setEcran({ kind: 'equipe', joueur: 1 })
       }
     },
-    [],
+    [mode, salle],
   )
 
   const franchirPassage = useCallback(() => {
@@ -414,7 +544,23 @@ export function useCombat(mode: Mode) {
    * visible. L'erreur existait déjà ; elle n'avait simplement nulle part où
    * s'afficher.
    */
-  const enPreparation = ecran.kind === 'equipe' && equipes !== null
+  const enPreparation =
+    ecran.kind === 'equipe' && (mode === 'ligne' ? equipe1 !== null : equipes !== null)
+
+  /**
+   * Ce qu'on attend de l'autre, et qui n'arrivera pas d'ici.
+   *
+   * En ligne, un écran peut être parfaitement à jour et pourtant sans rien
+   * à faire : le coup est parti, l'adversaire n'a pas encore joué. Sans le
+   * dire, l'écran ressemble à un écran figé.
+   */
+  const attente: 'equipe' | 'coup' | 'remplacement' | null = (() => {
+    if (mode !== 'ligne') return null
+    if (!etat) return equipe1 && !salle.etat?.adversairePret ? 'equipe' : null
+    if (ecran.kind === 'remplacement' && ecran.side !== monCote) return 'remplacement'
+    if (ecran.kind === 'choix' && salle.enAttenteDAdversaire) return 'coup'
+    return null
+  })()
 
   return {
     /* Données */
@@ -431,7 +577,10 @@ export function useCombat(mode: Mode) {
     /* Partie */
     mode,
     /** Le camp que tient l'appareil, ou `null` quand il les tient tous les deux. */
-    moi: mode === 'duo' ? null : (0 as Side),
+    moi: mode === 'duo' ? null : monCote,
+    /** L'état du lien avec l'arbitre. Inerte hors du mode en ligne. */
+    salle,
+    attente,
     ecran,
     passage,
     enPreparation,
