@@ -21,13 +21,27 @@ const STAB = 1.5
  */
 const estSansType = (move: Move) => move.id < 0
 
+/**
+ * Efficacité d'un type contre une paire de types, sans passer par une
+ * attaque. L'IA s'en sert pour jauger la menace que représente un
+ * adversaire dont elle ne connaît pas les attaques : elle ne suppose que ce
+ * que le joueur voit lui aussi — les types affichés sous le nom.
+ */
+export function efficaciteDuType(
+  chart: TypeChart,
+  type: TypeName,
+  cibles: readonly TypeName[],
+): number {
+  return cibles.reduce((total, cible) => total * (chart[type]?.[cible] ?? 1), 1)
+}
+
 export function efficaciteContre(
   chart: TypeChart,
   move: Move,
   cibles: readonly TypeName[],
 ): number {
   if (estSansType(move)) return 1
-  return cibles.reduce((total, cible) => total * (chart[move.type]?.[cible] ?? 1), 1)
+  return efficaciteDuType(chart, move.type, cibles)
 }
 
 export type Frappe = {
@@ -40,13 +54,46 @@ export type Frappe = {
 }
 
 /**
- * Formule de dégâts de la 5e génération et suivantes. Les arrondis à
- * l'entier inférieur en cours de route ne sont pas décoratifs : les
- * supprimer décale le résultat de plusieurs points de vie.
+ * Formule de dégâts de la 5e génération et suivantes, **le hasard fourni
+ * par l'appelant**.
  *
+ * Sortie du tirage pour que l'IA puisse estimer un coup sans le jouer, avec
+ * exactement la formule qui le résoudra ensuite. Une seconde implémentation
+ * « approchée » dériverait de celle-ci, et l'adversaire jouerait sur des
+ * chiffres qui ne sont pas ceux du combat.
+ *
+ * Les arrondis à l'entier inférieur en cours de route ne sont pas
+ * décoratifs : les supprimer décale le résultat de plusieurs points de vie.
  * L'ordre des multiplicateurs compte aussi — critique, puis aléa, puis
  * STAB, puis efficacité.
  */
+export function degatsDeFrappe(
+  attaquant: Battler,
+  defenseur: Battler,
+  move: Move,
+  efficacite: number,
+  hasard: { critique: boolean; variation: number },
+): number {
+  const physique = move.category === 'physical'
+  const offensive = physique ? attaquant.stats.attack : attaquant.stats['special-attack']
+  const defensive = physique ? defenseur.stats.defense : defenseur.stats['special-defense']
+
+  const facteurNiveau = Math.floor((2 * NIVEAU) / 5) + 2
+  const brut = Math.floor((facteurNiveau * move.power * offensive) / defensive)
+  let degats = Math.floor(brut / 50) + 2
+
+  if (hasard.critique) degats = Math.floor(degats * MULTIPLICATEUR_CRITIQUE)
+
+  degats = Math.floor((degats * hasard.variation) / 100)
+  if (!estSansType(move) && attaquant.types.includes(move.type)) {
+    degats = Math.floor(degats * STAB)
+  }
+  degats = Math.floor(degats * efficacite)
+
+  // Une attaque qui touche retire toujours au moins un point de vie.
+  return Math.max(1, degats)
+}
+
 export function resoudreFrappe(
   attaquant: Battler,
   defenseur: Battler,
@@ -66,23 +113,15 @@ export function resoudreFrappe(
     return { touche: false, degats: 0, critique: false, efficacite }
   }
 
-  const physique = move.category === 'physical'
-  const offensive = physique ? attaquant.stats.attack : attaquant.stats['special-attack']
-  const defensive = physique ? defenseur.stats.defense : defenseur.stats['special-defense']
-
-  const facteurNiveau = Math.floor((2 * NIVEAU) / 5) + 2
-  const brut = Math.floor((facteurNiveau * move.power * offensive) / defensive)
-  let degats = Math.floor(brut / 50) + 2
-
+  /*
+   * Les deux tirages restent ici, et dans cet ordre : le critique avant la
+   * variation. Les déplacer changerait la suite consommée par le générateur,
+   * donc le résultat de toute partie rejouée à graine égale.
+   */
   const critique = rng() < CHANCE_CRITIQUE
-  if (critique) degats = Math.floor(degats * MULTIPLICATEUR_CRITIQUE)
+  const variation = 85 + randInt(rng, 16)
 
-  degats = Math.floor((degats * (85 + randInt(rng, 16))) / 100)
-  if (!estSansType(move) && attaquant.types.includes(move.type)) {
-    degats = Math.floor(degats * STAB)
-  }
-  degats = Math.floor(degats * efficacite)
+  const degats = degatsDeFrappe(attaquant, defenseur, move, efficacite, { critique, variation })
 
-  // Une attaque qui touche retire toujours au moins un point de vie.
-  return { touche: true, degats: Math.max(1, degats), critique, efficacite }
+  return { touche: true, degats, critique, efficacite }
 }

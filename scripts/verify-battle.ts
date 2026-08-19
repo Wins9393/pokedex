@@ -20,9 +20,9 @@ import { estUnRendu, imagesPrechargees, spritesDeDos } from '@/lib/sprites'
 import { PLAFOND_SPRITES } from '@/lib/cache-sprites'
 import { estMuet } from '@/lib/battle/log'
 import { choisirAttaques, LUTTE } from '@/lib/battle/moveset'
-import { resoudreFrappe } from '@/lib/battle/damage'
+import { efficaciteContre, resoudreFrappe } from '@/lib/battle/damage'
 import { creerBattler, creerCombat, resoudreTour, actif, prochainEcran } from '@/lib/battle/engine'
-import { createRng } from '@/lib/battle/rng'
+import { createRng, randInt } from '@/lib/battle/rng'
 
 /* Les données de l'API sont mises de côté pour que les relances soient
  * instantanées et n'aillent pas taper PokéAPI à chaque exécution. */
@@ -862,7 +862,165 @@ console.log('\nCombat complet 3 contre 3')
   )
 }
 
-/* 14. Ce que le cache de requêtes garde d'une session à l'autre --------- */
+/* 14. L'adversaire du mode solo ---------------------------------------- */
+console.log("\nAdversaire contrôlé par l'IA")
+{
+  /*
+   * Ce qu'on vérifie n'est pas qu'elle joue « bien » — c'est indéfinissable
+   * — mais qu'elle ne joue pas de coup absurde : frapper un Sol avec de
+   * l'Électrik, échanger un Pokémon qui allait achever l'adversaire, ou
+   * changer d'avis d'un appel à l'autre sur le même état.
+   */
+  const { choisirActionIA, choisirRemplacantIA, composerEquipeIA, note } = await import(
+    '@/lib/battle/ia'
+  )
+
+  const duel = (moi: number, lui: number, banc: number[] = []) =>
+    creerCombat([[battler(moi), ...banc.map(battler)], [battler(lui)]], 4242)
+
+  {
+    const etat = duel(6, 3)
+    const action = choisirActionIA(etat, 0, chart)
+    const attaque = action.kind === 'move' ? actif(etat, 0).moves[action.slot].move : null
+    ok(
+      "elle frappe le point faible (Dracaufeu contre Florizarre)",
+      attaque?.type === 'fire',
+      attaque ? `${attaque.name} (${attaque.type})` : 'changement',
+    )
+  }
+
+  {
+    // Pikachu n'a que de l'Électrik utile, et Rhinocorne y est insensible.
+    const etat = duel(25, 111)
+    const action = choisirActionIA(etat, 0, chart)
+    const attaque = action.kind === 'move' ? actif(etat, 0).moves[action.slot].move : null
+    ok(
+      'elle ne lance pas une attaque sans effet',
+      attaque === null || efficaciteContre(chart, attaque, actif(etat, 1).types) > 0,
+      attaque ? attaque.name : 'elle change de Pokémon',
+    )
+  }
+
+  {
+    /*
+     * Florizarre contre Dracaufeu : il ne lui fait presque rien et prend
+     * du Feu en pleine face, alors que Rhinocorne attend sur le banc avec
+     * du Roche — ×4 sur un Feu/Vol. C'est le cas où il faut sortir.
+     */
+    const etat = duel(3, 6, [111])
+    const action = choisirActionIA(etat, 0, chart)
+    ok(
+      'elle change quand le banc fait bien mieux',
+      action.kind === 'switch' && action.to === 1,
+      `note actuelle ${note(actif(etat, 0), actif(etat, 1), chart).toFixed(2)}, ` +
+        `note du banc ${note(etat.teams[0].battlers[1], actif(etat, 1), chart).toFixed(2)}`,
+    )
+  }
+
+  {
+    // Même situation désespérée, mais l'adversaire est à bout de souffle :
+    // on achève, on ne se replie pas.
+    const etat = duel(3, 6, [111])
+    etat.teams[1].battlers[0].hp = 3
+    const action = choisirActionIA(etat, 0, chart)
+    ok("elle achève plutôt que de changer", action.kind === 'move')
+  }
+
+  {
+    const etat = duel(6, 3, [25, 143])
+    const a = choisirActionIA(etat, 0, chart)
+    const b = choisirActionIA(etat, 0, chart)
+    ok('deux fois le même état donnent la même décision', JSON.stringify(a) === JSON.stringify(b))
+  }
+
+  {
+    const etat = duel(25, 111, [3, 143])
+    etat.teams[0].battlers[0].hp = 0
+    const remplacant = choisirRemplacantIA(etat, 0, chart)
+    ok(
+      'après un K.O. elle envoie le mieux placé',
+      remplacant === 1,
+      `emplacement ${remplacant} sur ${etat.teams[0].battlers.length}`,
+    )
+  }
+
+  /*
+   * La mesure qui compte vraiment : contre un joueur qui tape au hasard,
+   * une IA qui lit les types doit gagner largement. Sans ce contrôle, une
+   * IA cassée passerait tous les tests unitaires ci-dessus en jouant
+   * n'importe quoi dans les cas non prévus.
+   */
+  {
+    const parties = 40
+    let gagnees = 0
+
+    for (let partie = 0; partie < parties; partie++) {
+      const rng = createRng(partie + 1)
+      const equipe = [6, 3, 25, 111, 143, 65]
+      const tirer = () => battler(equipe[randInt(rng, equipe.length)])
+      let etat = creerCombat([[tirer(), tirer(), tirer()], [tirer(), tirer(), tirer()]], partie * 977 + 3)
+
+      let tours = 0
+      while (etat.winner === null && tours < 200) {
+        for (const side of [0, 1] as const) {
+          if (actif(etat, side).hp <= 0) {
+            const suivant =
+              side === 1
+                ? choisirRemplacantIA(etat, 1, chart)
+                : etat.teams[side].battlers.findIndex((b) => b.hp > 0)
+            if (suivant >= 0) etat.teams[side].active = suivant
+          }
+        }
+        if (etat.teams.some((t) => t.battlers.every((b) => b.hp <= 0))) break
+
+        const hasard = { kind: 'move' as const, slot: randInt(rng, actif(etat, 0).moves.length) }
+        etat = resoudreTour(etat, [hasard, choisirActionIA(etat, 1, chart)], chart).etat
+        tours++
+      }
+
+      if (etat.winner === 1) gagnees++
+    }
+
+    ok(
+      "elle bat un joueur qui tape au hasard",
+      gagnees >= parties * 0.65,
+      `${gagnees} victoires sur ${parties}`,
+    )
+  }
+
+  /* L'équipe qu'elle compose face à celle du joueur. */
+  {
+    const dex = normalizeIndex(brut.index).pokemon
+    const parIdDex = new Map(dex.map((p) => [p.id, p]))
+    const joueur = [1, 4, 7].map((speciesId) => ({ speciesId, formId: null, shiny: false }))
+    const ia = composerEquipeIA(dex, joueur, 12345)
+
+    ok("elle compose bien trois Pokémon", ia.length === 3, ia.map((c) => parIdDex.get(c.speciesId)?.name).join(', '))
+    ok(
+      "sans reprendre ceux du joueur ni se répéter",
+      new Set([...ia.map((c) => c.speciesId), ...joueur.map((c) => c.speciesId)]).size === 6,
+    )
+
+    const totalJoueur = joueur.reduce((t, c) => t + (parIdDex.get(c.speciesId)?.statTotal ?? 0), 0)
+    const totalIA = ia.reduce((t, c) => t + (parIdDex.get(c.speciesId)?.statTotal ?? 0), 0)
+    ok(
+      "d'une force comparable à celle du joueur",
+      Math.abs(totalIA - totalJoueur) <= 0.12 * totalJoueur,
+      `${totalIA} contre ${totalJoueur}`,
+    )
+
+    const costauds = [150, 249, 384].map((speciesId) => ({ speciesId, formId: null, shiny: false }))
+    const face = composerEquipeIA(dex, costauds, 999)
+    const totalFace = face.reduce((t, c) => t + (parIdDex.get(c.speciesId)?.statTotal ?? 0), 0)
+    ok(
+      'trois légendaires appellent trois adversaires du même calibre',
+      totalFace >= 1800,
+      `${totalFace} pour ${face.map((c) => parIdDex.get(c.speciesId)?.name).join(', ')}`,
+    )
+  }
+}
+
+/* 15. Ce que le cache de requêtes garde d'une session à l'autre --------- */
 console.log('\nCaches durables')
 {
   /*
