@@ -710,11 +710,15 @@ cd serveur && npm install && npx wrangler login && npx wrangler deploy
 ```
 
 `wrangler deploy` répond avec une adresse du type `pokedex-combat.<sous-domaine>.workers.dev`. Il
-reste à la donner à l'application, en **`wss://`** et sans barre finale :
+reste à la donner à l'application :
 
 | Où | Variable | Valeur |
 | --- | --- | --- |
-| Netlify → Site settings → Environment variables | `VITE_ARBITRE` | `wss://pokedex-combat.<sous-domaine>.workers.dev` |
+| Netlify → Site settings → Environment variables | `VITE_ARBITRE` | l'adresse affichée par `wrangler deploy` |
+
+Telle quelle : le `https://` de `wrangler` est converti en `wss://` à la lecture, et une barre
+finale de trop est retirée. La norme prévoit cette conversion côté navigateur, mais s'en remettre
+à elle en silence rendrait la panne incompréhensible le jour où un navigateur ne la ferait pas.
 
 Puis un nouveau déploiement du site, la variable étant lue à la construction. Sans elle, le mode
 en ligne ne se lance pas et le dit — plutôt que de laisser tourner un écran de connexion qui

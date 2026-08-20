@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PROTOCOLE } from '@/lib/battle/protocole'
+import { PROTOCOLE, adresseArbitre } from '@/lib/battle/protocole'
 import type {
   EtatSalle,
   MessageClient,
@@ -20,8 +20,12 @@ import type { BattleEvent, BattleState } from '@/lib/battle/types'
  * sur « Connexion… » sans jamais dire pourquoi. Mieux vaut annoncer que le
  * mode n'est pas configuré.
  */
-const ARBITRE: string | null =
-  import.meta.env.VITE_ARBITRE ?? (import.meta.env.DEV ? 'ws://localhost:8787' : null)
+const brut: string | undefined = import.meta.env.VITE_ARBITRE
+const ARBITRE: string | null = brut
+  ? adresseArbitre(brut)
+  : import.meta.env.DEV
+    ? 'ws://localhost:8787'
+    : null
 
 /** Le jeton identifie l'appareil, pas le joueur : il sert à retrouver son camp. */
 const CLE_JETON = 'pokedex:jeton'

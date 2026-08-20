@@ -1121,7 +1121,7 @@ console.log("\nTable des types de l'arbitre")
     ecarts.length === 0 ? '324 relations identiques' : ecarts.slice(0, 3).join(', '),
   )
 
-  const { PROTOCOLE, equipeAcceptable, codeValide, normaliserCode } = await import(
+  const { PROTOCOLE, adresseArbitre, equipeAcceptable, codeValide, normaliserCode } = await import(
     '@/lib/battle/protocole'
   )
 
@@ -1144,6 +1144,19 @@ console.log("\nTable des types de l'arbitre")
     'un code de salle se lit sans ambiguïté',
     normaliserCode(' k7p2 ') === 'K7P2' && !codeValide('K0P2') && !codeValide('ABC'),
     'ni O/0 ni I/1/L dans l’alphabet',
+  )
+
+  /*
+   * L'adresse de l'arbitre est recopiée à la main dans les variables de
+   * l'hébergeur, depuis ce qu'affiche `wrangler deploy` — c'est-à-dire en
+   * `https://`, avec parfois une barre finale.
+   */
+  ok(
+    "l'adresse de l'arbitre se recopie telle qu'elle s'affiche",
+    adresseArbitre('https://exemple.workers.dev') === 'wss://exemple.workers.dev' &&
+      adresseArbitre('https://exemple.workers.dev/') === 'wss://exemple.workers.dev' &&
+      adresseArbitre(' http://localhost:8787 ') === 'ws://localhost:8787' &&
+      adresseArbitre('wss://exemple.workers.dev') === 'wss://exemple.workers.dev',
   )
 }
 

@@ -45,6 +45,21 @@ export const normaliserCode = (brut: string) =>
 export const codeValide = (code: string) =>
   code.length === LONGUEUR_CODE && [...code].every((c) => ALPHABET.includes(c))
 
+/**
+ * L'adresse de l'arbitre, quelle que soit la façon dont on l'a recopiée.
+ *
+ * `wrangler deploy` affiche une adresse en `https://` — c'est celle-là
+ * qu'on colle dans les variables d'environnement, naturellement, alors
+ * qu'une WebSocket parle `ws://`. La norme prévoit cette conversion, mais
+ * s'en remettre à elle en silence rendrait la panne incompréhensible le
+ * jour où un navigateur ne la ferait pas. On la fait donc ici, et la barre
+ * finale de trop disparaît au passage.
+ */
+export function adresseArbitre(brut: string): string {
+  const propre = brut.trim().replace(/\/+$/, '')
+  return propre.replace(/^http(s?):\/\//, 'ws$1://')
+}
+
 /* ------------------------------------------------------------------ *
  * Du téléphone vers l'arbitre
  * ------------------------------------------------------------------ */

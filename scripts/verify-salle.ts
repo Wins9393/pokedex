@@ -233,7 +233,16 @@ console.log('\nRechargement en pleine partie')
   const un = await telephone(code)
   const deux = await telephone(code)
 
+  /*
+   * Les deux arrivées sont séquencées, et ce n'est pas de la coquetterie :
+   * ce sont deux connexions distinctes, donc rien ne garantit que l'ordre
+   * d'envoi soit l'ordre d'arrivée. En local la latence nulle le masquait ;
+   * contre un vrai serveur, le camp attribué changeait d'un essai à
+   * l'autre. Deux joueurs qui rejoignent en même temps prennent bien un
+   * camp arbitraire — c'est le test qui n'avait pas à en supposer un.
+   */
   un.envoyer({ type: 'rejoindre', protocole: PROTOCOLE, jeton: 'jeton-un', nom: 'Vincent' })
+  await un.attendre('salle')
   deux.envoyer({ type: 'rejoindre', protocole: PROTOCOLE, jeton: 'jeton-deux', nom: 'Léa' })
   await deux.attendre('salle')
 
@@ -275,6 +284,7 @@ console.log('\nDeux connexions pour un même camp')
   const un = await telephone(code)
   const deux = await telephone(code)
   un.envoyer({ type: 'rejoindre', protocole: PROTOCOLE, jeton: 'jeton-un', nom: 'Vincent' })
+  await un.attendre('salle')
   deux.envoyer({ type: 'rejoindre', protocole: PROTOCOLE, jeton: 'jeton-deux', nom: 'Léa' })
   await deux.attendre('salle')
 
@@ -307,6 +317,7 @@ console.log("\nCe que l'arbitre refuse")
   const un = await telephone(code)
   const deux = await telephone(code)
   un.envoyer({ type: 'rejoindre', protocole: PROTOCOLE, jeton: 'a', nom: 'A' })
+  await un.attendre('salle')
   deux.envoyer({ type: 'rejoindre', protocole: PROTOCOLE, jeton: 'b', nom: 'B' })
   await deux.attendre('salle')
 
