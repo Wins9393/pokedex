@@ -18,7 +18,7 @@ import type { Action, BattleEvent, BattleState, Battler, Side } from './types'
  * refus net à la connexion vaut infiniment mieux qu'une partie qui part de
  * travers sans que personne comprenne pourquoi.
  */
-export const PROTOCOLE = 1
+export const PROTOCOLE = 2
 
 /**
  * Alphabet des codes de salle : ni `0`/`O`, ni `1`/`I`/`L`. Un code se lit
@@ -46,23 +46,39 @@ export const codeValide = (code: string) =>
   code.length === LONGUEUR_CODE && [...code].every((c) => ALPHABET.includes(c))
 
 /**
- * L'adresse de l'arbitre, quelle que soit la façon dont on l'a recopiée.
+ * L'adresse de l'arbitre doit être une adresse de WebSocket.
  *
- * `wrangler deploy` affiche une adresse en `https://` — c'est celle-là
- * qu'on colle dans les variables d'environnement, naturellement, alors
- * qu'une WebSocket parle `ws://`. La norme prévoit cette conversion, mais
- * s'en remettre à elle en silence rendrait la panne incompréhensible le
- * jour où un navigateur ne la ferait pas. On la fait donc ici, et la barre
- * finale de trop disparaît au passage.
+ * `wrangler deploy` en annonce une en `https://` : c'est la même machine,
+ * mais pas le même protocole, et c'est à la configuration de le dire. On ne
+ * convertit donc rien — on **refuse** clairement, et le mode en ligne
+ * s'annonce non configuré au lieu de tourner sur un écran de connexion sans
+ * issue.
  */
-export function adresseArbitre(brut: string): string {
-  const propre = brut.trim().replace(/\/+$/, '')
-  return propre.replace(/^http(s?):\/\//, 'ws$1://')
-}
+export const adresseValide = (adresse: string) => /^wss?:\/\/[^\s/]+$/.test(adresse)
 
 /* ------------------------------------------------------------------ *
  * Du téléphone vers l'arbitre
  * ------------------------------------------------------------------ */
+
+/**
+ * Temps laissé pour décider d'un coup, une fois le récit du tour déroulé.
+ *
+ * Sans lui, un joueur qui range son téléphone laisse l'autre attendre
+ * indéfiniment : la partie n'a aucune autre porte de sortie que l'abandon.
+ */
+export const DELAI_TOUR_MS = 30_000
+
+/**
+ * Rallonge accordée pour lire ce qui vient de se passer.
+ *
+ * L'arbitre ouvre la fenêtre de décision au moment où il diffuse le tour,
+ * c'est-à-dire pendant que les deux téléphones font encore défiler le
+ * récit. Sans cette marge, une partie du délai serait mangée par la
+ * lecture, et un tour à six événements laisserait bien moins de trente
+ * secondes pour choisir. L'arbitre sait combien d'événements il vient
+ * d'envoyer : il paie donc leur lecture.
+ */
+export const MARGE_RECIT_MS = 1_500
 
 export type MessageClient =
   /**
@@ -77,7 +93,10 @@ export type MessageClient =
   /** `tour` date le coup : un double envoi ou un message en retard est ignoré. */
   | { type: 'action'; tour: number; action: Action }
   | { type: 'remplacement'; tour: number; index: number }
+  /** Rejouer le même combat, mêmes équipes. */
   | { type: 'revanche' }
+  /** Repartir de la sélection, dans la même salle. */
+  | { type: 'nouvelles-equipes' }
 
 /* ------------------------------------------------------------------ *
  * De l'arbitre vers les téléphones
@@ -97,15 +116,33 @@ export type MessageServeur =
   /** Réponse à `rejoindre`, et à chaque changement dans la salle. */
   | { type: 'salle'; salle: EtatSalle }
   /** Les deux équipes sont là : voici le combat, identique des deux côtés. */
-  | { type: 'debut'; etat: BattleState }
+  | { type: 'debut'; etat: BattleState; echeance: number | null }
   /** Le coup est enregistré ; on attend celui d'en face. */
   | { type: 'attente'; tour: number }
-  /** Le tour a été résolu par l'arbitre : personne ne recalcule rien. */
-  | { type: 'tour'; etat: BattleState; evenements: BattleEvent[] }
+  /**
+   * Le tour a été résolu par l'arbitre : personne ne recalcule rien.
+   *
+   * `echeance` est la date limite du choix suivant, en millisecondes depuis
+   * l'époque — une date et non une durée, pour qu'un téléphone qui se
+   * rebranche en cours de fenêtre reprenne le décompte au bon endroit.
+   *
+   * `automatiques` nomme les camps dont le coup a été joué par l'arbitre,
+   * faute d'avoir été donné à temps. Le dire est une question d'honnêteté :
+   * sans cela, un joueur voit son Pokémon attaquer sans l'avoir décidé.
+   */
+  | {
+      type: 'tour'
+      etat: BattleState
+      evenements: BattleEvent[]
+      echeance: number | null
+      automatiques: Side[]
+    }
+  /** Les équipes sont rendues : on repart de la sélection, même salle. */
+  | { type: 'nouvelle-partie' }
   | { type: 'erreur'; raison: RaisonErreur; detail?: string }
 
 export type RaisonErreur =
-  /** Les deux applications ne parlent pas la même langue. */
+  /** L'application et l'arbitre ne parlent pas la même langue. */
   | 'protocole'
   /** Deux joueurs occupent déjà la salle. */
   | 'pleine'
@@ -113,8 +150,13 @@ export type RaisonErreur =
   | 'refus'
 
 export const TEXTE_ERREUR: Record<RaisonErreur, string> = {
+  /*
+   * Toujours un désaccord entre l'application et l'arbitre, jamais entre
+   * les deux joueurs : c'est l'arbitre qui tranche, donc c'est avec lui
+   * qu'il faut s'entendre.
+   */
   protocole:
-    "Ton adversaire n'a pas la même version de l'application. Rechargez la page tous les deux.",
+    "Cette version de l'application ne parle pas la même langue que l'arbitre. Recharge la page ; si le refus persiste, c'est l'arbitre qui doit être redéployé.",
   pleine: 'Cette salle est déjà complète.',
   refus: "L'arbitre a refusé la partie.",
 }

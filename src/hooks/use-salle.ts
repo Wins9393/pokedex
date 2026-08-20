@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PROTOCOLE, adresseArbitre } from '@/lib/battle/protocole'
+import { PROTOCOLE, adresseValide } from '@/lib/battle/protocole'
 import type {
   EtatSalle,
   MessageClient,
   MessageServeur,
   RaisonErreur,
 } from '@/lib/battle/protocole'
-import type { BattleEvent, BattleState } from '@/lib/battle/types'
+import type { BattleEvent, BattleState, Side } from '@/lib/battle/types'
 
 /**
  * Adresse de l'arbitre, injectée à la construction.
@@ -17,15 +17,16 @@ import type { BattleEvent, BattleState } from '@/lib/battle/types'
  *
  * Le repli local **ne vaut qu'en développement** : en production il
  * enverrait le téléphone frapper à sa propre porte, et l'écran resterait
- * sur « Connexion… » sans jamais dire pourquoi. Mieux vaut annoncer que le
- * mode n'est pas configuré.
+ * sur « Connexion… » sans jamais dire pourquoi.
+ *
+ * Une adresse qui n'est pas celle d'une WebSocket est refusée plutôt que
+ * corrigée. `wrangler deploy` en annonce une en `https://` : c'est la même
+ * machine, mais pas le même protocole, et c'est à la configuration de le
+ * dire — pas au code de le deviner.
  */
-const brut: string | undefined = import.meta.env.VITE_ARBITRE
-const ARBITRE: string | null = brut
-  ? adresseArbitre(brut)
-  : import.meta.env.DEV
-    ? 'ws://localhost:8787'
-    : null
+const brut: string | undefined = import.meta.env.VITE_ARBITRE?.trim()
+const ARBITRE: string | null =
+  brut && adresseValide(brut) ? brut : brut ? null : (import.meta.env.DEV ? 'ws://localhost:8787' : null)
 
 /** Le jeton identifie l'appareil, pas le joueur : il sert à retrouver son camp. */
 const CLE_JETON = 'pokedex:jeton'
@@ -49,8 +50,15 @@ const REPRISE_MIN = 1000
 const REPRISE_MAX = 10_000
 
 export type Ecoutes = {
-  onDebut: (etat: BattleState) => void
-  onTour: (etat: BattleState, evenements: BattleEvent[]) => void
+  onDebut: (etat: BattleState, echeance: number | null) => void
+  onTour: (
+    etat: BattleState,
+    evenements: BattleEvent[],
+    echeance: number | null,
+    automatiques: Side[],
+  ) => void
+  /** Les deux joueurs repartent de la sélection, dans la même salle. */
+  onNouvellePartie: () => void
 }
 
 export type Salle = {
@@ -150,14 +158,23 @@ export function useSalle(code: string | null, nom: string, ecoutes: Ecoutes): Sa
             return
           case 'debut':
             setEnAttente(false)
-            dernieres.current.onDebut(message.etat)
+            dernieres.current.onDebut(message.etat, message.echeance)
             return
           case 'attente':
             setEnAttente(true)
             return
           case 'tour':
             setEnAttente(false)
-            dernieres.current.onTour(message.etat, message.evenements)
+            dernieres.current.onTour(
+              message.etat,
+              message.evenements,
+              message.echeance,
+              message.automatiques,
+            )
+            return
+          case 'nouvelle-partie':
+            setEnAttente(false)
+            dernieres.current.onNouvellePartie()
             return
           case 'erreur':
             setErreur({ raison: message.raison, detail: message.detail })

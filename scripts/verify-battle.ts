@@ -1121,7 +1121,7 @@ console.log("\nTable des types de l'arbitre")
     ecarts.length === 0 ? '324 relations identiques' : ecarts.slice(0, 3).join(', '),
   )
 
-  const { PROTOCOLE, adresseArbitre, equipeAcceptable, codeValide, normaliserCode } = await import(
+  const { PROTOCOLE, adresseValide, equipeAcceptable, codeValide, normaliserCode } = await import(
     '@/lib/battle/protocole'
   )
 
@@ -1147,16 +1147,18 @@ console.log("\nTable des types de l'arbitre")
   )
 
   /*
-   * L'adresse de l'arbitre est recopiée à la main dans les variables de
-   * l'hébergeur, depuis ce qu'affiche `wrangler deploy` — c'est-à-dire en
-   * `https://`, avec parfois une barre finale.
+   * L'adresse de l'arbitre se configure à la main, et `wrangler deploy` en
+   * annonce une en `https://`. On ne la corrige pas en douce : on la refuse,
+   * et le mode en ligne s'annonce non configuré plutôt que de tourner sur un
+   * écran de connexion sans issue.
    */
   ok(
-    "l'adresse de l'arbitre se recopie telle qu'elle s'affiche",
-    adresseArbitre('https://exemple.workers.dev') === 'wss://exemple.workers.dev' &&
-      adresseArbitre('https://exemple.workers.dev/') === 'wss://exemple.workers.dev' &&
-      adresseArbitre(' http://localhost:8787 ') === 'ws://localhost:8787' &&
-      adresseArbitre('wss://exemple.workers.dev') === 'wss://exemple.workers.dev',
+    "seule une adresse de WebSocket est acceptée pour l'arbitre",
+    adresseValide('wss://exemple.workers.dev') &&
+      adresseValide('ws://localhost:8787') &&
+      !adresseValide('https://exemple.workers.dev') &&
+      !adresseValide('wss://exemple.workers.dev/') &&
+      !adresseValide('exemple.workers.dev'),
   )
 }
 

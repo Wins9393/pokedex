@@ -116,13 +116,28 @@ action une vingtaine d'octets. Renvoyer l'état entier à chaque tour coûte **7
 partie** — aucune optimisation de protocole n'est justifiée, et le client ne recalcule jamais rien.
 
 L'écran de passage disparaît : les deux joueurs choisissent en même temps, chacun chez soi, et
-l'arbitre garde le premier coup reçu secret jusqu'à l'arrivée du second. La sauvegarde locale, elle,
+l'arbitre garde le premier coup reçu secret jusqu'à l'arrivée du second.
+
+**Trente secondes pour choisir**, imposées par l'arbitre — un joueur qui range son téléphone ne
+peut plus bloquer la partie. Deux détails comptent :
+
+- La fenêtre s'ouvre au moment où l'arbitre **diffuse** le tour, c'est-à-dire pendant que les deux
+  téléphones font encore défiler le récit. Il accorde donc une rallonge de 1,5 s par événement
+  envoyé : il sait ce qu'il vient de donner à lire, il en paie la lecture.
+- Le délai écoulé, il joue **le coup du Dresseur** — le module du mode solo, qui n'a besoin que de
+  l'état et de la table des types. Un tirage au hasard serait plus punitif sans être plus juste. Le
+  message le dit aux deux joueurs : voir son Pokémon attaquer sans l'avoir décidé mérite une
+  explication.
+
+Le minuteur s'arrête quand plus personne n'est connecté, et repart avec le premier revenant : jouer
+des coups automatiques dans une salle vide n'userait qu'une partie que personne ne regarde. La sauvegarde locale, elle,
 ne sert pas — l'état appartient à l'arbitre, et c'est l'adresse de la salle qui tient lieu de
 signet.
 
-`verify:salle` éprouve tout cela contre un vrai serveur : 19 contrôles à deux connexions, dont
-« les deux téléphones reçoivent le même combat », « le choix de l'un ne fuit pas vers l'autre »,
-« un coup daté du tour précédent est ignoré » et « un joueur qui recharge retrouve son camp ».
+`verify:salle` éprouve tout cela contre un vrai serveur : **29 contrôles à deux connexions**, dont
+un combat entier mené jusqu'à la victoire sans une divergence entre les deux clients, « le choix de
+l'un ne fuit pas vers l'autre », « un coup daté du tour précédent est ignoré », « un joueur qui
+recharge retrouve son camp » et « le tour se résout seul quand le temps est écoulé ».
 
 #### L'adversaire du mode solo
 
@@ -710,15 +725,18 @@ cd serveur && npm install && npx wrangler login && npx wrangler deploy
 ```
 
 `wrangler deploy` répond avec une adresse du type `pokedex-combat.<sous-domaine>.workers.dev`. Il
-reste à la donner à l'application :
+reste à la donner à l'application, **en `wss://`** et sans barre finale :
 
 | Où | Variable | Valeur |
 | --- | --- | --- |
-| Netlify → Site settings → Environment variables | `VITE_ARBITRE` | l'adresse affichée par `wrangler deploy` |
+| Netlify → Site settings → Environment variables | `VITE_ARBITRE` | `wss://pokedex-combat.<sous-domaine>.workers.dev` |
 
-Telle quelle : le `https://` de `wrangler` est converti en `wss://` à la lecture, et une barre
-finale de trop est retirée. La norme prévoit cette conversion côté navigateur, mais s'en remettre
-à elle en silence rendrait la panne incompréhensible le jour où un navigateur ne la ferait pas.
+`wrangler` en annonce une en `https://` : c'est la même machine, mais pas le même protocole. Une
+adresse qui n'est pas celle d'une WebSocket est **refusée**, pas corrigée — le mode en ligne
+s'annonce non configuré plutôt que de tourner sur un écran de connexion sans issue.
+
+Toute modification du protocole demande de redéployer l'arbitre **avant** le site : c'est lui qui
+tranche, et une application plus récente que lui se voit refuser l'entrée avec un message clair.
 
 Puis un nouveau déploiement du site, la variable étant lue à la construction. Sans elle, le mode
 en ligne ne se lance pas et le dit — plutôt que de laisser tourner un écran de connexion qui
@@ -740,7 +758,7 @@ Deux commandes valent d'être connues : `npx wrangler tail` donne les journaux e
 | `npm run preview` | Sert le build de production |
 | `npm run lint` | oxlint |
 | `npm run verify:battle` | Contrôle le moteur, l'IA, les caches et la table de l'arbitre (103 vérifications) |
-| `npm run verify:salle` | Contrôle l'arbitre en ligne, à deux connexions, contre un `wrangler dev` |
+| `npm run verify:salle` | Contrôle l'arbitre en ligne, à deux connexions, contre un `wrangler dev` (~40 s : il attend un vrai délai de réflexion) |
 
 ## Crédits
 

@@ -137,6 +137,14 @@ export function useCombat(mode: Mode, code: string | null = null) {
     reprise?.sauve.etat ? 'Reprise du combat.' : null,
   )
   const [impact, setImpact] = useState<Side | null>(null)
+  /**
+   * Date limite du choix en cours, telle que l'arbitre l'a fixée. Une date
+   * et non un compte à rebours : un téléphone qui se rebranche en cours de
+   * fenêtre reprend le décompte au bon endroit.
+   */
+  const [echeance, setEcheance] = useState<number | null>(null)
+  /** Les camps dont l'arbitre a joué le coup, faute de réponse à temps. */
+  const [automatiques, setAutomatiques] = useState<Side[]>([])
 
   /* --- Le lien avec l'arbitre, en ligne seulement -------------------- */
   const salle = useSalle(mode === 'ligne' ? code : null, pseudos[0] || NOMS_PAR_DEFAUT[0], {
@@ -144,13 +152,15 @@ export function useCombat(mode: Mode, code: string | null = null) {
      * Le combat arrive tout monté : c'est l'arbitre qui a assemblé les deux
      * équipes et tiré la graine. Le téléphone ne calcule rien, il affiche.
      */
-    onDebut: (recu) => {
+    onDebut: (recu, limite) => {
       setEtat(recu)
       setAffiche(recu)
       setEvenements([])
       setCurseur(0)
       setImpact(null)
       setMessage(null)
+      setEcheance(limite)
+      setAutomatiques([])
       setEcran({ kind: 'choix', side: salle.etat?.moi ?? 0 })
     },
     /*
@@ -158,11 +168,32 @@ export function useCombat(mode: Mode, code: string | null = null) {
      * l'état d'avant le tour, que le récit va faire évoluer pas à pas —
      * exactement comme en local.
      */
-    onTour: (recu, recits) => {
+    onTour: (recu, recits, limite, joues) => {
       setEtat(recu)
       setEvenements(recits)
       setCurseur(0)
+      setEcheance(limite)
+      setAutomatiques(joues)
       setEcran({ kind: 'replay' })
+    },
+    /*
+     * Les deux repartent de la sélection : tout ce qui appartenait au
+     * combat s'efface, y compris l'équipe déjà transmise — l'arbitre l'a
+     * rendue, et l'effet d'envoi la reprendra quand elle sera recomposée.
+     */
+    onNouvellePartie: () => {
+      setEtat(null)
+      setAffiche(null)
+      setEvenements([])
+      setCurseur(0)
+      setImpact(null)
+      setMessage(null)
+      setEcheance(null)
+      setAutomatiques([])
+      setEquipe1(null)
+      setEquipe2(null)
+      equipeEnvoyee.current = false
+      setEcran({ kind: 'equipe', joueur: 1 })
     },
   })
 
@@ -527,6 +558,18 @@ export function useCombat(mode: Mode, code: string | null = null) {
     [mode, salle],
   )
 
+  /**
+   * Repartir de la sélection, dans la même salle.
+   *
+   * Propre au jeu en ligne : les deux joueurs doivent recomposer, donc
+   * c'est l'arbitre qui rend les équipes et le dit aux deux. En local, c'est
+   * `rejouer(false)` qui fait ce travail sans avoir personne à prévenir.
+   */
+  const nouvellesEquipes = useCallback(() => {
+    if (mode === 'ligne') salle.envoyer({ type: 'nouvelles-equipes' })
+    else rejouer(false)
+  }, [mode, salle, rejouer])
+
   const franchirPassage = useCallback(() => {
     if (!passage) return
     setEcran(passage.ecran)
@@ -581,6 +624,8 @@ export function useCombat(mode: Mode, code: string | null = null) {
     /** L'état du lien avec l'arbitre. Inerte hors du mode en ligne. */
     salle,
     attente,
+    echeance,
+    automatiques,
     ecran,
     passage,
     enPreparation,
@@ -596,6 +641,7 @@ export function useCombat(mode: Mode, code: string | null = null) {
     choisirAction,
     choisirRemplacant,
     rejouer,
+    nouvellesEquipes,
     avancerRecit,
     franchirPassage,
   }

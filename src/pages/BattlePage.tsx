@@ -48,6 +48,33 @@ const MARGE_JAUGE = 150
  */
 const PLANCHER_MUET = 250
 
+/**
+ * Le temps qu'il reste pour choisir, en secondes.
+ *
+ * L'arbitre donne une **date**, pas une durée : un téléphone qui se
+ * rebranche en cours de fenêtre reprend donc le décompte au bon endroit,
+ * sans que personne n'ait à mesurer une latence. Le rafraîchissement est
+ * plus rapide que la seconde affichée, sans quoi le compte sauterait d'un
+ * chiffre à l'autre avec un retard visible.
+ */
+function useDecompte(echeance: number | null): number | null {
+  const [restant, setRestant] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (echeance === null) {
+      setRestant(null)
+      return
+    }
+
+    const calculer = () => setRestant(Math.max(0, Math.ceil((echeance - Date.now()) / 1000)))
+    calculer()
+    const minuteur = window.setInterval(calculer, 500)
+    return () => window.clearInterval(minuteur)
+  }, [echeance])
+
+  return restant
+}
+
 /* ------------------------------------------------------------------ *
  * Page
  * ------------------------------------------------------------------ */
@@ -380,6 +407,18 @@ function Partie({ mode, code }: { mode: Mode; code: string | null }) {
   const { avancerRecit } = combat
 
   /*
+   * Le décompte ne s'affiche que lorsqu'une décision est attendue **de
+   * nous** : pendant le récit, il tournerait sous les yeux d'un joueur qui
+   * n'a rien à faire d'autre que lire, et la marge de lecture accordée par
+   * l'arbitre le rendrait de toute façon illisible.
+   */
+  const restant = useDecompte(combat.echeance)
+  const decompte =
+    mode === 'ligne' && combat.attente === null && (ecran.kind === 'choix' || ecran.kind === 'remplacement')
+      ? restant
+      : null
+
+  /*
    * « Quitter » n'a pas le même sens selon le mode. En local il efface la
    * partie sauvegardée ; en ligne il n'y a rien à effacer ici — l'état
    * appartient à l'arbitre — et quitter, c'est simplement sortir de la
@@ -504,6 +543,18 @@ function Partie({ mode, code }: { mode: Mode; code: string | null }) {
         </div>
       )}
 
+      {/*
+        Un coup qu'on n'a pas donné doit être annoncé : sans cela, on voit
+        son Pokémon attaquer sans comprendre pourquoi.
+      */}
+      {combat.automatiques.length > 0 && (
+        <div className="sticky top-0 z-40 bg-amber-500/15 px-4 py-1.5 text-center font-semibold text-amber-600 text-sm dark:text-amber-400">
+          Temps écoulé —{' '}
+          {combat.automatiques.map((side) => noms[side]).join(' et ')}{' '}
+          {combat.automatiques.length > 1 ? "n'ont" : "n'a"} pas choisi à temps
+        </div>
+      )}
+
       {enPassage && (
         <PassScreen
           player={passage.vers}
@@ -555,6 +606,8 @@ function Partie({ mode, code }: { mode: Mode; code: string | null }) {
               moi={combat.moi}
               attente={combat.attente}
               nomAdverse={combat.salle.etat?.nomAdverse ?? null}
+              decompte={decompte}
+              onNouvellesEquipes={combat.nouvellesEquipes}
               affiche={affiche}
               etat={etat}
               chart={chart}
@@ -598,7 +651,15 @@ function Cadre({ children }: { children: ReactNode }) {
  * périme jamais interdirait d'en commencer une neuve avant d'avoir fini la
  * précédente.
  */
-function EnTete({ tour, onQuitter }: { tour?: number; onQuitter?: () => void }) {
+function EnTete({
+  tour,
+  decompte,
+  onQuitter,
+}: {
+  tour?: number
+  decompte?: number | null
+  onQuitter?: () => void
+}) {
   const [confirme, setConfirme] = useState(false)
 
   return (
@@ -615,6 +676,21 @@ function EnTete({ tour, onQuitter }: { tour?: number; onQuitter?: () => void }) 
         {tour !== undefined && (
           <span className="rounded-full border border-line bg-panel-soft px-3 py-1 font-semibold text-ink-soft text-xs">
             Tour {tour}
+          </span>
+        )}
+
+        {/* Les dix dernières secondes passent en rouge : c'est le moment où
+            l'information cesse d'être décorative. */}
+        {decompte !== null && decompte !== undefined && (
+          <span
+            aria-live="off"
+            className={`rounded-full border px-3 py-1 font-bold text-xs tabular-nums ${
+              decompte <= 10
+                ? 'border-transparent bg-rose-500 text-white'
+                : 'border-line bg-panel-soft text-ink-soft'
+            }`}
+          >
+            {decompte} s
           </span>
         )}
 
@@ -665,6 +741,9 @@ type CombatProps = {
   nomAdverse: string | null
   /** En ligne, les équipes appartiennent à la salle : on ne les change pas seul. */
   enLigne: boolean
+  /** Secondes restantes pour décider, `null` quand rien n'est chronométré. */
+  decompte: number | null
+  onNouvellesEquipes: () => void
   affiche: BattleState
   etat: BattleState
   chart: TypeChart | undefined
@@ -692,6 +771,8 @@ function Combat({
   attente,
   nomAdverse,
   enLigne,
+  decompte,
+  onNouvellesEquipes,
   affiche,
   etat,
   chart,
@@ -738,7 +819,7 @@ function Combat({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
-      <EnTete tour={affiche.turn} onQuitter={() => onRejouer(false)} />
+      <EnTete tour={affiche.turn} decompte={decompte} onQuitter={() => onRejouer(false)} />
 
       <BattleArena
         joueur={vue(perspective)}
@@ -845,11 +926,24 @@ function Combat({
               </button>
               <button
                 type="button"
-                onClick={() => arme && onRejouer(false)}
+                onClick={() => arme && onNouvellesEquipes()}
                 className="rounded-full border border-line bg-panel-soft px-5 py-2.5 font-bold text-ink-soft transition hover:text-ink"
               >
-                {enLigne ? 'Quitter la salle' : 'Nouvelles équipes'}
+                Nouvelles équipes
               </button>
+
+              {/* En ligne seulement : en local, « Quitter » vit dans
+                  l'en-tête et efface la partie sauvegardée. Ici il faut
+                  aussi pouvoir sortir de la salle depuis l'écran de fin. */}
+              {enLigne && (
+                <button
+                  type="button"
+                  onClick={() => arme && onRejouer(false)}
+                  className="rounded-full border border-line bg-panel-soft px-5 py-2.5 font-bold text-ink-soft transition hover:text-ink"
+                >
+                  Quitter la salle
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -1,13 +1,19 @@
 import { DurableObject } from 'cloudflare:workers'
 import { creerCombat, doitRemplacer, remplacer, resoudreTour } from '../../src/lib/battle/engine'
-import { PROTOCOLE, equipeAcceptable } from '../../src/lib/battle/protocole'
+import { choisirActionIA, choisirRemplacantIA } from '../../src/lib/battle/ia'
+import {
+  DELAI_TOUR_MS,
+  MARGE_RECIT_MS,
+  PROTOCOLE,
+  equipeAcceptable,
+} from '../../src/lib/battle/protocole'
 import type {
   EtatSalle,
   MessageClient,
   MessageServeur,
   RaisonErreur,
 } from '../../src/lib/battle/protocole'
-import type { Action, BattleState, Battler, Side } from '../../src/lib/battle/types'
+import type { Action, BattleEvent, BattleState, Battler, Side } from '../../src/lib/battle/types'
 import type { TypeChart } from '../../src/lib/type-chart'
 import table from './table-des-types.json'
 
@@ -60,9 +66,19 @@ type Partie = {
   etat: BattleState | null
   /** Le coup déjà reçu, gardé secret jusqu'à ce que l'autre arrive. */
   enAttente: [Action | null, Action | null]
+  /** Date limite du choix en cours, `null` hors fenêtre de décision. */
+  echeance: number | null
+  /** Date à partir de laquelle la salle peut être oubliée. */
+  oubli: number
 }
 
-const VIDE: Partie = { joueurs: [null, null], etat: null, enAttente: [null, null] }
+const VIDE: Partie = {
+  joueurs: [null, null],
+  etat: null,
+  enAttente: [null, null],
+  echeance: null,
+  oubli: 0,
+}
 
 type Attache = { side: Side; session: number }
 
@@ -81,7 +97,6 @@ export class Salle extends DurableObject {
      * son état. C'est ce qui rend une partie qui traîne gratuite.
      */
     this.ctx.acceptWebSocket(paire[1])
-    await this.ctx.storage.deleteAlarm()
 
     return new Response(null, { status: 101, webSocket: paire[0] })
   }
@@ -97,6 +112,8 @@ export class Salle extends DurableObject {
     }
 
     const partie = await this.lire()
+    // Tout message est un signe de vie : la salle recule son oubli.
+    partie.oubli = Date.now() + OUBLI_MS
 
     if (message.type === 'rejoindre') return this.rejoindre(ws, message, partie)
 
@@ -112,6 +129,8 @@ export class Salle extends DurableObject {
         return this.recevoirRemplacement(attache.side, message, partie)
       case 'revanche':
         return this.revanche(partie)
+      case 'nouvelles-equipes':
+        return this.nouvellesEquipes(partie)
       default:
         return this.refuser(ws, 'refus', 'message inconnu')
     }
@@ -128,21 +147,85 @@ export class Salle extends DurableObject {
     if (!joueur || joueur.session !== attache.session) return
 
     joueur.connecte = false
-    await this.ecrire(partie)
-    this.diffuserSalle(partie)
 
     /*
-     * Personne en ligne : la salle s'oubliera d'elle-même. Le réveil est
-     * annulé dès qu'une connexion revient — un rechargement de page ne doit
-     * pas coûter la partie.
+     * Le minuteur ne court que s'il reste quelqu'un pour en profiter :
+     * jouer des coups automatiques dans une salle vide ne ferait qu'user
+     * une partie que personne ne regarde.
      */
-    if (partie.joueurs.every((j) => !j?.connecte)) {
-      await this.ctx.storage.setAlarm(Date.now() + OUBLI_MS)
-    }
+    if (partie.joueurs.every((j) => !j?.connecte)) partie.echeance = null
+
+    await this.ecrire(partie)
+    await this.armer(partie)
+    this.diffuserSalle(partie)
+  }
+
+  /**
+   * Le réveil de la salle sert deux choses : la fin d'un délai de réflexion,
+   * et l'oubli d'une salle abandonnée. Un objet durable n'a qu'une alarme —
+   * on la pose donc sur la plus proche des deux, et `alarm` démêle.
+   */
+  private armer(partie: Partie) {
+    const prochain = Math.min(partie.echeance ?? Number.POSITIVE_INFINITY, partie.oubli)
+    return this.ctx.storage.setAlarm(prochain)
   }
 
   async alarm() {
-    await this.ctx.storage.deleteAll()
+    const partie = await this.lire()
+    const maintenant = Date.now()
+
+    if (partie.echeance !== null && maintenant >= partie.echeance) {
+      return this.tempsEcoule(partie)
+    }
+
+    if (maintenant >= partie.oubli) return this.ctx.storage.deleteAll()
+
+    return this.armer(partie)
+  }
+
+  /**
+   * Le délai est passé : l'arbitre joue pour qui n'a pas choisi.
+   *
+   * Il joue **le coup du Dresseur**, pas un coup au hasard : c'est le même
+   * module que le mode solo, et il n'a besoin que de l'état et de la table
+   * des types. Un tirage aléatoire serait plus punitif sans être plus juste,
+   * et laisserait le combat s'enliser sur des attaques sans effet.
+   */
+  private async tempsEcoule(partie: Partie) {
+    const etat = partie.etat
+    if (!etat || etat.winner !== null) {
+      partie.echeance = null
+      await this.ecrire(partie)
+      return this.armer(partie)
+    }
+
+    const automatiques: Side[] = []
+
+    // Un remplacement en attente passe avant tout : tant qu'un camp est à
+    // terre, aucun coup ne peut être résolu.
+    for (const side of [0, 1] as Side[]) {
+      if (!doitRemplacer(etat, side)) continue
+      automatiques.push(side)
+      const resultat = remplacer(etat, side, choisirRemplacantIA(etat, side, CHART))
+      partie.etat = resultat.etat
+      await this.conclure(partie, resultat.events, automatiques)
+      return
+    }
+
+    const actions: [Action, Action] = [
+      partie.enAttente[0] ?? this.coupDArbitre(etat, 0, automatiques),
+      partie.enAttente[1] ?? this.coupDArbitre(etat, 1, automatiques),
+    ]
+
+    const resultat = resoudreTour(etat, actions, CHART)
+    partie.etat = resultat.etat
+    partie.enAttente = [null, null]
+    await this.conclure(partie, resultat.events, automatiques)
+  }
+
+  private coupDArbitre(etat: BattleState, side: Side, automatiques: Side[]): Action {
+    automatiques.push(side)
+    return choisirActionIA(etat, side, CHART)
   }
 
   /* ---------------------------------------------------------------- *
@@ -192,10 +275,23 @@ export class Salle extends DurableObject {
     }
     await this.ecrire(partie)
 
+    /*
+     * Le minuteur s'était arrêté faute de public : il repart avec le
+     * premier revenant, et pas avant — sinon la fenêtre aurait expiré
+     * pendant l'absence, et le retour se ferait sur un coup déjà joué.
+     */
+    if (partie.etat && partie.etat.winner === null && partie.echeance === null) {
+      partie.echeance = Date.now() + DELAI_TOUR_MS
+      await this.ecrire(partie)
+    }
+    await this.armer(partie)
+
     this.envoyer(ws, { type: 'salle', salle: this.vueDe(partie, side) })
     // Une partie déjà commencée se retrouve telle quelle : c'est l'arbitre
     // qui tient l'état, le téléphone n'en est qu'un afficheur.
-    if (partie.etat) this.envoyer(ws, { type: 'debut', etat: partie.etat })
+    if (partie.etat) {
+      this.envoyer(ws, { type: 'debut', etat: partie.etat, echeance: partie.echeance })
+    }
 
     this.diffuserSalle(partie)
   }
@@ -216,13 +312,40 @@ export class Salle extends DurableObject {
        * choisirait en conséquence.
        */
       partie.etat = creerCombat([un.equipe, deux.equipe], (Math.random() * 0xffffffff) >>> 0)
+      partie.echeance = Date.now() + DELAI_TOUR_MS
       await this.ecrire(partie)
-      this.diffuser({ type: 'debut', etat: partie.etat })
+      await this.armer(partie)
+      this.diffuser({ type: 'debut', etat: partie.etat, echeance: partie.echeance })
       return
     }
 
     await this.ecrire(partie)
     this.diffuserSalle(partie)
+  }
+
+  /**
+   * Diffuse un tour résolu et rouvre la fenêtre de décision.
+   *
+   * Un seul chemin pour les trois cas — coup normal, remplacement, coup
+   * joué par l'arbitre — sinon le délai finirait par être posé dans deux
+   * branches sur trois, et le troisième cas bloquerait la partie.
+   */
+  private async conclure(partie: Partie, evenements: BattleEvent[], automatiques: Side[]) {
+    const etat = partie.etat!
+    partie.echeance =
+      etat.winner === null
+        ? Date.now() + DELAI_TOUR_MS + evenements.length * MARGE_RECIT_MS
+        : null
+
+    await this.ecrire(partie)
+    await this.armer(partie)
+    this.diffuser({
+      type: 'tour',
+      etat,
+      evenements,
+      echeance: partie.echeance,
+      automatiques,
+    })
   }
 
   private async recevoirAction(
@@ -257,9 +380,7 @@ export class Salle extends DurableObject {
     const resultat = resoudreTour(etat, actions, CHART)
     partie.etat = resultat.etat
     partie.enAttente = [null, null]
-    await this.ecrire(partie)
-
-    this.diffuser({ type: 'tour', etat: resultat.etat, evenements: resultat.events })
+    await this.conclure(partie, resultat.events, [])
   }
 
   private async recevoirRemplacement(
@@ -276,8 +397,7 @@ export class Salle extends DurableObject {
     if (resultat.events.length === 0) return
 
     partie.etat = resultat.etat
-    await this.ecrire(partie)
-    this.diffuser({ type: 'tour', etat: resultat.etat, evenements: resultat.events })
+    await this.conclure(partie, resultat.events, [])
   }
 
   private async revanche(partie: Partie) {
@@ -288,8 +408,31 @@ export class Salle extends DurableObject {
     // précédent vivaient dans l'état, pas dans les équipes conservées.
     partie.etat = creerCombat([un.equipe, deux.equipe], (Math.random() * 0xffffffff) >>> 0)
     partie.enAttente = [null, null]
+    partie.echeance = Date.now() + DELAI_TOUR_MS
     await this.ecrire(partie)
-    this.diffuser({ type: 'debut', etat: partie.etat })
+    await this.armer(partie)
+    this.diffuser({ type: 'debut', etat: partie.etat, echeance: partie.echeance })
+  }
+
+  /**
+   * Les deux repartent de la sélection, dans la même salle.
+   *
+   * Les équipes sont rendues à leurs propriétaires — c'est-à-dire effacées
+   * ici : c'est le téléphone qui recomposera, et l'arbitre n'a pas à se
+   * souvenir de ce qu'il ne lui a pas encore été redemandé.
+   */
+  private async nouvellesEquipes(partie: Partie) {
+    if (!partie.etat || partie.etat.winner === null) return
+
+    for (const joueur of partie.joueurs) if (joueur) joueur.equipe = null
+    partie.etat = null
+    partie.enAttente = [null, null]
+    partie.echeance = null
+
+    await this.ecrire(partie)
+    await this.armer(partie)
+    this.diffuser({ type: 'nouvelle-partie' })
+    this.diffuserSalle(partie)
   }
 
   /* ---------------------------------------------------------------- *
